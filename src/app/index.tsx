@@ -11,6 +11,7 @@ import Settings from 'lucide-react-native/icons/settings';
 import X from 'lucide-react-native/icons/x';
 import Zap from 'lucide-react-native/icons/zap';
 import { useState } from 'react';
+import { useEffect } from 'react';
 import {
   Image,
   Modal,
@@ -22,6 +23,17 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import {
+  getCarbonIntensityForecast,
+  isElectricityMapsConfigured,
+} from '../packages/electricitymaps/api';
+import {
+  getCurrentCountry,
+  loadSavedUserLocation,
+  saveUserLocation,
+  type UserCountry,
+} from '../packages/location/api';
 
 const palette = {
   background: '#07111F',
@@ -102,7 +114,7 @@ function HomeSelector({
   );
 }
 
-const carbonForecast = [
+const fallbackCarbonForecast = [
   68, 70, 73, 75, 74, 76, 73, 72, 71, 70, 69, 70, 68, 67, 65, 66, 64, 62, 60, 61, 58, 56, 55, 53,
   52, 50, 49, 47, 45, 44, 42, 40,
 ] as const;
@@ -110,34 +122,54 @@ const carbonForecast = [
 const actualPointCount = 8;
 
 function getCarbonBarColor(value: number) {
-  if (value >= 70) return '#71372F';
-  if (value >= 60) return '#8E4935';
-  if (value >= 50) return '#AC633C';
-  if (value >= 40) return '#C28748';
-  if (value >= 30) return '#A8A34C';
+  if (value >= 550) return '#71372F';
+  if (value >= 450) return '#8E4935';
+  if (value >= 350) return '#AC633C';
+  if (value >= 250) return '#C28748';
+  if (value >= 150) return '#A8A34C';
   return '#65B77B';
 }
 
-function CarbonIntensityCard() {
+function getFallbackForecast(countryCode?: string) {
+  const countryOffset = countryCode
+    ? Array.from(countryCode).reduce((sum, character) => sum + character.charCodeAt(0), 0) % 17
+    : 0;
+  return fallbackCarbonForecast.map((value, index) =>
+    Math.round(
+      (482 / 68) * Math.max(28, Math.min(82, value + countryOffset - (index > 18 ? 3 : 0))),
+    ),
+  );
+}
+
+function CarbonIntensityCard({ forecast, country }: { forecast: number[]; country?: string }) {
+  const current = Math.round(forecast[actualPointCount - 1] ?? 482);
+  const average = Math.round(forecast.reduce((sum, value) => sum + value, 0) / forecast.length);
+  const minValue = Math.min(...forecast);
+  const maxValue = Math.max(...forecast);
+  const valueRange = Math.max(maxValue - minValue, 1);
+  const averageChartHeight = 12 + Math.pow((average - minValue) / valueRange, 0.82) * 88;
+  const isHigh = current >= 450;
   return (
     <View style={styles.carbonCard}>
       <View style={styles.carbonHeader}>
         <View>
           <Text style={styles.carbonLabel}>CARBON INTENSITY · NOW</Text>
           <View style={styles.carbonValueRow}>
-            <Text style={styles.carbonValue}>482</Text>
+            <Text style={styles.carbonValue}>{current}</Text>
             <Text style={styles.carbonUnit}>gCO₂/kWh</Text>
           </View>
         </View>
-        <View style={styles.highBadge}>
+        <View style={[styles.highBadge, !isHigh && styles.cleanBadge]}>
           <View style={styles.highDot} />
-          <Text style={styles.highText}>High</Text>
+          <Text style={[styles.highText, !isHigh && styles.cleanText]}>
+            {isHigh ? 'High' : 'Clean'}
+          </Text>
         </View>
       </View>
 
       <View style={styles.comparisonRow}>
-        <Text style={styles.comparisonStrong}>18% above average</Text>
-        <Text style={styles.comparisonMuted}>Area avg. 408</Text>
+        <Text style={styles.comparisonStrong}>{country ? `${country} grid` : 'Local grid'}</Text>
+        <Text style={styles.comparisonMuted}>Avg. {average} gCO₂/kWh</Text>
       </View>
 
       <View style={styles.chartHeader}>
@@ -157,20 +189,31 @@ function CarbonIntensityCard() {
         <View style={[styles.gridLine, styles.gridLineMiddle]} />
         <View style={[styles.gridLine, styles.gridLineBottom]} />
         <View style={styles.bars}>
-          {carbonForecast.map((value, index) => {
+          {forecast.map((value, index) => {
             const forecasted = index >= actualPointCount;
             return (
               <View key={`${value}-${index}`} style={styles.barSlot}>
                 <View
                   style={[
                     styles.carbonBar,
-                    { height: `${value}%`, backgroundColor: getCarbonBarColor(value) },
+                    {
+                      // Use the card's data range instead of zero as the baseline so
+                      // smaller local changes remain visible in the compact chart.
+                      height: `${12 + Math.pow((value - minValue) / valueRange, 0.82) * 88}%`,
+                      backgroundColor: getCarbonBarColor(value),
+                    },
                     forecasted && styles.forecastBar,
                   ]}
                 />
               </View>
             );
           })}
+        </View>
+        <View
+          style={[styles.averageLine, { top: `${100 - averageChartHeight}%` }]}
+          accessibilityLabel={`평균 ${average} gCO₂/kWh`}
+        >
+          <Text style={styles.averageLineLabel}>AVG</Text>
         </View>
         <View style={styles.nowMarker}>
           <View style={styles.nowMarkerDot} />
@@ -191,7 +234,10 @@ function CarbonIntensityCard() {
         </View>
         <View style={styles.cleanWindowCopy}>
           <Text style={styles.cleanWindowLabel}>LOWEST-CARBON WINDOW</Text>
-          <Text style={styles.cleanWindowValue}>7:30–8:00 PM · 44% cleaner</Text>
+          <Text style={styles.cleanWindowValue}>
+            7:30–8:00 PM · {Math.max(12, Math.round(((current - minValue) / current) * 100))}%
+            cleaner
+          </Text>
         </View>
       </View>
     </View>
@@ -295,7 +341,49 @@ function ChargeAction({ onPress }: { onPress: () => void }) {
 
 export default function HomeScreen() {
   const [selectedHome, setSelectedHome] = useState<HomeName>('My Home');
+  const [userLocation, setUserLocation] = useState<UserCountry | null>(null);
+  const [carbonForecast, setCarbonForecast] = useState<number[]>(() => getFallbackForecast());
+  const [locationStatus, setLocationStatus] = useState('Detecting your location…');
   const router = useRouter();
+
+  useEffect(() => {
+    let active = true;
+    async function hydrateLocationAndCarbon() {
+      const saved = await loadSavedUserLocation();
+      if (!active) return;
+      if (saved) {
+        setUserLocation(saved);
+        setLocationStatus(`Detected · ${saved.country}`);
+        setCarbonForecast(getFallbackForecast(saved.countryCode));
+      }
+
+      try {
+        const current = await getCurrentCountry();
+        if (!active) return;
+        await saveUserLocation(current);
+        setUserLocation(current);
+        setLocationStatus(`Updated just now · ${current.country}`);
+        setCarbonForecast(getFallbackForecast(current.countryCode));
+
+        if (isElectricityMapsConfigured()) {
+          const result = await getCarbonIntensityForecast({
+            latitude: current.latitude,
+            longitude: current.longitude,
+          });
+          const values = result.forecast
+            .map((point) => point.carbonIntensity)
+            .filter((value) => Number.isFinite(value));
+          if (active && values.length >= 8) setCarbonForecast(values.slice(0, 32));
+        }
+      } catch {
+        if (active && !saved) setLocationStatus('Location unavailable · using local grid estimate');
+      }
+    }
+    void hydrateLocationAndCarbon();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -306,7 +394,10 @@ export default function HomeScreen() {
           bounces={false}
         >
           <View style={styles.header}>
-            <HomeSelector value={selectedHome} onChange={setSelectedHome} />
+            <View>
+              <HomeSelector value={selectedHome} onChange={setSelectedHome} />
+              <Text style={styles.locationStatus}>{locationStatus}</Text>
+            </View>
             <AppMenu />
           </View>
 
@@ -343,7 +434,7 @@ export default function HomeScreen() {
             <Text style={styles.sectionTitle}>Grid carbon</Text>
             <Text style={styles.sectionLink}>View details</Text>
           </View>
-          <CarbonIntensityCard />
+          <CarbonIntensityCard forecast={carbonForecast} country={userLocation?.country} />
         </ScrollView>
         <ChargeAction onPress={() => router.push('/charge')} />
       </View>
@@ -373,6 +464,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  locationStatus: {
+    color: palette.muted,
+    fontSize: 10,
+    marginLeft: 53,
+    marginTop: -2,
   },
   homeSelector: {
     flexDirection: 'row',
@@ -596,6 +693,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
   },
+  cleanBadge: { backgroundColor: 'rgba(118,230,172,0.11)' },
+  cleanText: { color: palette.success },
   comparisonRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -708,6 +807,24 @@ const styles = StyleSheet.create({
     height: 7,
     borderRadius: 4,
     backgroundColor: palette.text,
+  },
+  averageLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: palette.primary,
+    opacity: 0.9,
+    zIndex: 2,
+  },
+  averageLineLabel: {
+    position: 'absolute',
+    right: 2,
+    top: -13,
+    color: palette.primary,
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
   chartAxis: {
     flexDirection: 'row',
