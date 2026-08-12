@@ -26,6 +26,12 @@
     "plugins": [
       "expo-router",
       [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "EcoV Charge uses your location to detect your country and show local energy data."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#071A12",
