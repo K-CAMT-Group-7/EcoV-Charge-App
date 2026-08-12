@@ -1,3 +1,4 @@
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Location from 'expo-location';
 import { Platform } from 'react-native';
 
@@ -17,6 +18,47 @@ export interface UserCountry {
 export interface UserLocation {
   latitude: number;
   longitude: number;
+}
+
+const LOCATION_CACHE_FILE = `${FileSystem.documentDirectory ?? ''}ecov-charge-location.json`;
+
+function canUseWebStorage() {
+  return Platform.OS === 'web' && typeof window !== 'undefined' && !!window.localStorage;
+}
+
+/** Saves the last approved location locally so the landing screen can render immediately. */
+export async function saveUserLocation(location: UserCountry): Promise<void> {
+  const serialized = JSON.stringify(location);
+  if (canUseWebStorage()) {
+    window.localStorage.setItem('ecov-charge-location', serialized);
+    return;
+  }
+  if (!FileSystem.documentDirectory) return;
+  await FileSystem.writeAsStringAsync(LOCATION_CACHE_FILE, serialized);
+}
+
+/** Reads the locally cached location. This never asks for permission. */
+export async function loadSavedUserLocation(): Promise<UserCountry | null> {
+  try {
+    const serialized = canUseWebStorage()
+      ? window.localStorage.getItem('ecov-charge-location')
+      : FileSystem.documentDirectory
+        ? await FileSystem.readAsStringAsync(LOCATION_CACHE_FILE)
+        : null;
+    if (!serialized) return null;
+    const value = JSON.parse(serialized) as Partial<UserCountry>;
+    if (
+      typeof value.countryCode !== 'string' ||
+      typeof value.country !== 'string' ||
+      typeof value.latitude !== 'number' ||
+      typeof value.longitude !== 'number'
+    ) {
+      return null;
+    }
+    return value as UserCountry;
+  } catch {
+    return null;
+  }
 }
 
 export type UserCountryErrorCode =

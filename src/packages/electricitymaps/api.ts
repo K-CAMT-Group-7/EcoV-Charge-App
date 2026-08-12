@@ -1,5 +1,17 @@
-const API_URL = process.env.EXPO_PUBLIC_ELECTRICITYMAPS_API_URL?.replace(/\/+$/, '');
+const API_URL = process.env.EXPO_PUBLIC_ELECTRICITYMAPS_API_URL?.replace(/\/+$/, '').replace(
+  /\/v4$/,
+  '',
+);
 const API_KEY = process.env.EXPO_PUBLIC_ELECTRICITYMAPS_API_KEY;
+
+export interface GeolocationQuery {
+  latitude: number;
+  longitude: number;
+}
+
+export function isElectricityMapsConfigured() {
+  return Boolean(API_URL && API_KEY);
+}
 
 export type ApiRequestOptions = RequestInit;
 
@@ -108,14 +120,28 @@ export async function apiRequest<T>(endpoint: string, options: ApiRequestOptions
 
 export function getCarbonIntensity(zone: string, options?: ApiRequestOptions) {
   return apiRequest<CarbonIntensity>(
-    `/carbon-intensity/latest?zone=${encodeURIComponent(zone)}`,
+    `/v4/carbon-intensity/latest?zone=${encodeURIComponent(zone)}`,
     options,
   );
 }
 
-export function getCarbonIntensityForecast(zone: string, options?: ApiRequestOptions) {
+/**
+ * Electricity Maps accepts either a zone or a lat/lon pair. We use the
+ * coordinates collected from the device so regional zones (for example
+ * US-CA or AU-NSW) are resolved accurately instead of guessing from country.
+ */
+export function getCarbonIntensityForecast(
+  location: GeolocationQuery,
+  options?: ApiRequestOptions,
+) {
+  const params = new URLSearchParams({
+    lat: String(location.latitude),
+    lon: String(location.longitude),
+    temporalGranularity: '15_minutes',
+    horizonHours: '24',
+  });
   return apiRequest<CarbonIntensityForecast>(
-    `/carbon-intensity/forecast?zone=${encodeURIComponent(zone)}`,
+    `/v4/carbon-intensity/forecast?${params.toString()}`,
     options,
   );
 }
