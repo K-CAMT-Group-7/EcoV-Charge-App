@@ -1,0 +1,121 @@
+const API_URL = process.env.EXPO_PUBLIC_ELECTRICITYMAPS_API_URL?.replace(/\/+$/, '');
+const API_KEY = process.env.EXPO_PUBLIC_ELECTRICITYMAPS_API_KEY;
+
+export type ApiRequestOptions = RequestInit;
+
+export interface CarbonIntensity {
+  zone: string;
+  carbonIntensity: number;
+  datetime: string;
+  updatedAt?: string;
+  estimationMethod?: string;
+  isEstimated?: boolean;
+  temporalGranularity?: string;
+}
+
+export interface CarbonIntensityForecast {
+  zone: string;
+  forecast: CarbonIntensity[];
+}
+
+export class ElectricityMapsApiError extends Error {
+  readonly status?: number;
+  readonly statusText?: string;
+  readonly details?: unknown;
+
+  constructor(
+    message: string,
+    options: { status?: number; statusText?: string; details?: unknown } = {},
+  ) {
+    super(message);
+    this.name = 'ElectricityMapsApiError';
+    this.status = options.status;
+    this.statusText = options.statusText;
+    this.details = options.details;
+  }
+}
+
+function getApiConfig() {
+  if (!API_URL || !API_KEY) {
+    throw new ElectricityMapsApiError(
+      'Electricity Maps API is not configured. Set EXPO_PUBLIC_ELECTRICITYMAPS_API_URL and EXPO_PUBLIC_ELECTRICITYMAPS_API_KEY.',
+    );
+  }
+
+  return { apiUrl: API_URL, apiKey: API_KEY };
+}
+
+function getEndpointUrl(endpoint: string, apiUrl: string) {
+  if (!endpoint.trim()) {
+    throw new ElectricityMapsApiError('API endpoint cannot be empty.');
+  }
+
+  return `${apiUrl}/${endpoint.replace(/^\/+/, '')}`;
+}
+
+async function readResponseBody(response: Response): Promise<unknown> {
+  const body = await response.text();
+
+  if (!body) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
+export async function apiRequest<T>(endpoint: string, options: ApiRequestOptions = {}): Promise<T> {
+  const { apiUrl, apiKey } = getApiConfig();
+  const headers = new Headers(options.headers);
+
+  if (!headers.has('Content-Type') && options.body !== undefined) {
+    headers.set('Content-Type', 'application/json');
+  }
+  headers.set('auth-token', apiKey);
+
+  let response: Response;
+  try {
+    response = await fetch(getEndpointUrl(endpoint, apiUrl), {
+      ...options,
+      headers,
+    });
+  } catch (error) {
+    throw new ElectricityMapsApiError('Unable to reach the Electricity Maps API.', {
+      details: error,
+    });
+  }
+
+  const body = await readResponseBody(response);
+
+  if (!response.ok) {
+    const message =
+      typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : `Electricity Maps API request failed with ${response.status} ${response.statusText}.`;
+
+    throw new ElectricityMapsApiError(message, {
+      status: response.status,
+      statusText: response.statusText,
+      details: body,
+    });
+  }
+
+  return body as T;
+}
+
+export function getCarbonIntensity(zone: string, options?: ApiRequestOptions) {
+  return apiRequest<CarbonIntensity>(
+    `/carbon-intensity/latest?zone=${encodeURIComponent(zone)}`,
+    options,
+  );
+}
+
+export function getCarbonIntensityForecast(zone: string, options?: ApiRequestOptions) {
+  return apiRequest<CarbonIntensityForecast>(
+    `/carbon-intensity/forecast?zone=${encodeURIComponent(zone)}`,
+    options,
+  );
+}
