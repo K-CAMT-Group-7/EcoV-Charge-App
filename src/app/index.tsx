@@ -1,11 +1,11 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { LucideIcon } from 'lucide-react-native';
-import Activity from 'lucide-react-native/icons/activity';
 import ArrowRight from 'lucide-react-native/icons/arrow-right';
 import Car from 'lucide-react-native/icons/car';
 import Check from 'lucide-react-native/icons/check';
 import ChevronDown from 'lucide-react-native/icons/chevron-down';
 import ChevronRight from 'lucide-react-native/icons/chevron-right';
+import ClipboardClock from 'lucide-react-native/icons/clipboard-clock';
 import Home from 'lucide-react-native/icons/house';
 import Leaf from 'lucide-react-native/icons/leaf';
 import LogOut from 'lucide-react-native/icons/log-out';
@@ -308,8 +308,7 @@ function CarbonSavingsCard({
 const navItems: Array<{ label: string; icon: LucideIcon }> = [
   { label: 'Home', icon: Home },
   { label: 'Vehicles', icon: Car },
-  { label: 'Energy', icon: Zap },
-  { label: 'Activity', icon: Activity },
+  { label: 'Record', icon: ClipboardClock },
   { label: 'Settings', icon: Settings },
 ];
 
@@ -366,6 +365,7 @@ function AppMenu() {
                   onPress={() => {
                     setOpen(false);
                     if (item.label === 'Vehicles') router.push('/vehicles');
+                    if (item.label === 'Record') router.push('/record');
                   }}
                   style={({ pressed }) => [styles.menuItem, pressed && styles.optionPressed]}
                 >

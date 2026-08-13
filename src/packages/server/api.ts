@@ -188,7 +188,8 @@ export async function listChargingRecords(
   const params = new URLSearchParams();
   if (options.vehicleId) params.set('vehicleId', options.vehicleId);
   if (options.limit) params.set('limit', String(options.limit));
-  const query = params.size ? `?${params.toString()}` : '';
+  const serializedParams = params.toString();
+  const query = serializedParams ? `?${serializedParams}` : '';
   const result = await authenticatedRequest<{ chargingRecords: ServerChargingRecord[] }>(
     `/v1/charging-records${query}`,
     sessionToken,
