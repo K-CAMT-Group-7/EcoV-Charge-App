@@ -22,6 +22,7 @@ type Store interface {
 
 	CreateChargingRecord(ctx context.Context, userID string, record ChargingRecord) (ChargingRecord, error)
 	ListChargingRecords(ctx context.Context, userID, vehicleID string, limit int) ([]ChargingRecord, error)
+	GetChargingImpactSummary(ctx context.Context, userID, vehicleID string) (ChargingImpactSummary, error)
 	GetChargingRecord(ctx context.Context, userID, recordID string) (ChargingRecord, error)
 	DeleteChargingRecord(ctx context.Context, userID, recordID string) error
 }

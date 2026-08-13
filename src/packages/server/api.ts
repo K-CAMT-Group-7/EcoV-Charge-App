@@ -56,6 +56,11 @@ export interface ServerChargingRecord {
   updatedAt: string;
 }
 
+export interface ChargingImpactSummary {
+  chargingCount: number;
+  carbonSavingsGco2: number;
+}
+
 export interface ServerChargingSession {
   id: string;
   userId: string;
@@ -189,6 +194,13 @@ export async function listChargingRecords(
     sessionToken,
   );
   return result.chargingRecords;
+}
+
+export function getChargingImpactSummary(sessionToken: string, vehicleId: string) {
+  return authenticatedRequest<ChargingImpactSummary>(
+    `/v1/charging-records/impact-summary?vehicleId=${encodeURIComponent(vehicleId)}`,
+    sessionToken,
+  );
 }
 
 export function createChargingRecord(sessionToken: string, record: CreateServerChargingRecord) {

@@ -76,6 +76,9 @@ func (*fakeStore) CreateChargingRecord(context.Context, string, account.Charging
 func (*fakeStore) ListChargingRecords(context.Context, string, string, int) ([]account.ChargingRecord, error) {
 	panic("not used")
 }
+func (*fakeStore) GetChargingImpactSummary(context.Context, string, string) (account.ChargingImpactSummary, error) {
+	panic("not used")
+}
 func (*fakeStore) GetChargingRecord(context.Context, string, string) (account.ChargingRecord, error) {
 	panic("not used")
 }

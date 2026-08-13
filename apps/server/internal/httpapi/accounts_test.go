@@ -14,8 +14,10 @@ import (
 
 type vehicleAccountStore struct {
 	account.Store
-	createdUserID  string
-	createdVehicle account.Vehicle
+	createdUserID          string
+	createdVehicle         account.Vehicle
+	impactSummaryUserID    string
+	impactSummaryVehicleID string
 }
 
 func (store *vehicleAccountStore) CreateVehicle(
@@ -30,6 +32,16 @@ func (store *vehicleAccountStore) CreateVehicle(
 	vehicle.CreatedAt = time.Date(2026, time.August, 13, 0, 0, 0, 0, time.UTC)
 	vehicle.UpdatedAt = vehicle.CreatedAt
 	return vehicle, nil
+}
+
+func (store *vehicleAccountStore) GetChargingImpactSummary(
+	_ context.Context,
+	userID string,
+	vehicleID string,
+) (account.ChargingImpactSummary, error) {
+	store.impactSummaryUserID = userID
+	store.impactSummaryVehicleID = vehicleID
+	return account.ChargingImpactSummary{ChargingCount: 4, CarbonSavingsGCO2: 1250}, nil
 }
 
 func TestCreateVehicleAddsVehicleToAuthenticatedAccount(t *testing.T) {
@@ -75,5 +87,39 @@ func TestCreateVehicleAddsVehicleToAuthenticatedAccount(t *testing.T) {
 	}
 	if created.ID != "vehicle-1" || created.UserID != "authenticated-user" {
 		t.Fatalf("server-managed fields are invalid: %#v", created)
+	}
+}
+
+func TestChargingImpactSummaryIsScopedToAuthenticatedUserAndVehicle(t *testing.T) {
+	store := &vehicleAccountStore{}
+	api := &API{accounts: store}
+	app := fiber.New()
+	app.Get("/charging-records/impact-summary", func(c fiber.Ctx) error {
+		c.Locals(userLocalKey, account.User{ID: "authenticated-user"})
+		return api.getChargingImpactSummary(c)
+	})
+
+	request := httptest.NewRequest(
+		"GET",
+		"/charging-records/impact-summary?vehicleId=vehicle-1",
+		nil,
+	)
+	response, err := app.Test(request)
+	if err != nil {
+		t.Fatalf("charging impact summary request failed: %v", err)
+	}
+	if response.StatusCode != fiber.StatusOK {
+		t.Fatalf("expected 200, got %d", response.StatusCode)
+	}
+	if store.impactSummaryUserID != "authenticated-user" || store.impactSummaryVehicleID != "vehicle-1" {
+		t.Fatalf("summary scope is invalid: user=%q vehicle=%q", store.impactSummaryUserID, store.impactSummaryVehicleID)
+	}
+
+	var summary account.ChargingImpactSummary
+	if err := json.NewDecoder(response.Body).Decode(&summary); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if summary.ChargingCount != 4 || summary.CarbonSavingsGCO2 != 1250 {
+		t.Fatalf("unexpected summary: %#v", summary)
 	}
 }

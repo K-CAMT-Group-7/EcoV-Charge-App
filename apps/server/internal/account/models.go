@@ -61,6 +61,11 @@ type ChargingRecord struct {
 	UpdatedAt              time.Time `json:"updatedAt"`
 }
 
+type ChargingImpactSummary struct {
+	ChargingCount     int     `json:"chargingCount"`
+	CarbonSavingsGCO2 float64 `json:"carbonSavingsGco2"`
+}
+
 type ChargingSession struct {
 	ID                                  string     `json:"id"`
 	UserID                              string     `json:"userId"`

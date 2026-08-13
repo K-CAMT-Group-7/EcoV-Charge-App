@@ -201,6 +201,20 @@ func (api *API) listChargingRecords(c fiber.Ctx) error {
 	return c.JSON(fiber.Map{"chargingRecords": records})
 }
 
+func (api *API) getChargingImpactSummary(c fiber.Ctx) error {
+	vehicleID := strings.TrimSpace(c.Query("vehicleId"))
+	if vehicleID == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "vehicleId is required")
+	}
+	summary, err := api.accounts.GetChargingImpactSummary(
+		c.Context(), currentUser(c).ID, vehicleID,
+	)
+	if err != nil {
+		return err
+	}
+	return c.JSON(summary)
+}
+
 func (api *API) getChargingRecord(c fiber.Ctx) error {
 	record, err := api.accounts.GetChargingRecord(c.Context(), currentUser(c).ID, c.Params("recordId"))
 	if err != nil {
