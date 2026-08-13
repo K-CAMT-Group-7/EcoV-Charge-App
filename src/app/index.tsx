@@ -397,6 +397,7 @@ export default function HomeScreen() {
   const [locationStatus, setLocationStatus] = useState('Detecting your location…');
   const [vehicles, setVehicles] = useState<ServerVehicle[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const [showChargeVehiclePrompt, setShowChargeVehiclePrompt] = useState(false);
   const router = useRouter();
   const { sessionToken } = useAuth();
   const primaryVehicle =
@@ -535,12 +536,47 @@ export default function HomeScreen() {
           <CarbonIntensityCard forecast={carbonForecast} country={userLocation?.country} />
         </ScrollView>
         <ChargeAction
-          onPress={() =>
-            primaryVehicle
-              ? router.push({ pathname: '/charge', params: { vehicleId: primaryVehicle.id } })
-              : router.push('/vehicles')
-          }
+          onPress={() => {
+            if (!primaryVehicle) {
+              setShowChargeVehiclePrompt(true);
+              return;
+            }
+            router.push({ pathname: '/charge', params: { vehicleId: primaryVehicle.id } });
+          }}
         />
+        <Modal
+          visible={showChargeVehiclePrompt}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowChargeVehiclePrompt(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.chargeVehiclePrompt}>
+              <View style={styles.chargeVehiclePromptIcon}>
+                <Car size={27} color={palette.primary} strokeWidth={2} />
+              </View>
+              <Text style={styles.chargeVehiclePromptTitle}>Select a vehicle first</Text>
+              <Text style={styles.chargeVehiclePromptText}>
+                Add or select a vehicle before starting smart charging.
+              </Text>
+              <Pressable
+                onPress={() => {
+                  setShowChargeVehiclePrompt(false);
+                  router.push('/vehicles');
+                }}
+                style={styles.chargeVehiclePromptButton}
+              >
+                <Text style={styles.chargeVehiclePromptButtonText}>Choose a vehicle</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setShowChargeVehiclePrompt(false)}
+                style={styles.chargeVehiclePromptCancel}
+              >
+                <Text style={styles.chargeVehiclePromptCancelText}>Not now</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
       </View>
     </SafeAreaView>
   );
@@ -1127,6 +1163,53 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     backgroundColor: 'rgba(0, 5, 13, 0.72)',
   },
+  chargeVehiclePrompt: {
+    width: '88%',
+    maxWidth: 360,
+    alignItems: 'center',
+    padding: 26,
+    borderRadius: 26,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  chargeVehiclePromptIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(114,213,255,0.12)',
+  },
+  chargeVehiclePromptTitle: {
+    color: palette.text,
+    fontSize: 20,
+    fontWeight: '800',
+    marginTop: 18,
+  },
+  chargeVehiclePromptText: {
+    color: palette.muted,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  chargeVehiclePromptButton: {
+    width: '100%',
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: palette.primary,
+    marginTop: 22,
+  },
+  chargeVehiclePromptButtonText: {
+    color: palette.background,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  chargeVehiclePromptCancel: { paddingVertical: 13, paddingHorizontal: 24 },
+  chargeVehiclePromptCancelText: { color: palette.muted, fontSize: 13, fontWeight: '700' },
   vehicleMenu: {
     width: 300,
     padding: 10,

@@ -26,12 +26,16 @@ export interface ServerVehicle {
   acChargingPowerKw: number;
   dcFastChargingPowerKw: number;
   chargingEfficiency: number;
+  currentBatteryPercent: number;
   connectorTypes: string[];
   createdAt: string;
   updatedAt: string;
 }
 
-export type CreateServerVehicle = Omit<ServerVehicle, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+export type CreateServerVehicle = Omit<
+  ServerVehicle,
+  'id' | 'userId' | 'currentBatteryPercent' | 'createdAt' | 'updatedAt'
+>;
 
 export interface ServerChargingRecord {
   id: string;
@@ -47,6 +51,44 @@ export interface ServerChargingRecord {
   emissionsGco2: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ServerChargingSession {
+  id: string;
+  userId: string;
+  vehicleId: string;
+  status: 'scheduled' | 'charging' | 'completed' | 'stopped' | 'failed';
+  startedAt: string;
+  targetAt: string;
+  initialBatteryPercent: number;
+  currentBatteryPercent: number;
+  targetBatteryPercent: number;
+  latitude: number;
+  longitude: number;
+  accumulatedBatteryEnergyKwh: number;
+  accumulatedGridEnergyKwh: number;
+  accumulatedEmissionsGco2: number;
+  estimatedOptimizedEmissionsGco2: number;
+  estimatedImmediateEmissionsGco2: number;
+  estimatedCarbonSavingsGco2: number;
+  lastControlledAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateChargingSession {
+  vehicleId: string;
+  targetBatteryPercent: number;
+  targetAt: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface ChargingEstimate {
+  optimizedEmissionsGco2: number;
+  immediateEmissionsGco2: number;
+  carbonSavingsGco2: number;
 }
 
 export type CreateServerChargingRecord = Omit<
@@ -142,6 +184,36 @@ export function createChargingRecord(sessionToken: string, record: CreateServerC
     method: 'POST',
     body: JSON.stringify(record),
   });
+}
+
+export function createChargingSession(sessionToken: string, session: CreateChargingSession) {
+  return authenticatedRequest<ServerChargingSession>('/v1/charging-sessions', sessionToken, {
+    method: 'POST',
+    body: JSON.stringify(session),
+  });
+}
+
+export function estimateChargingSession(sessionToken: string, session: CreateChargingSession) {
+  return authenticatedRequest<ChargingEstimate>('/v1/charging-sessions/estimate', sessionToken, {
+    method: 'POST',
+    body: JSON.stringify(session),
+  });
+}
+
+export async function getActiveChargingSession(sessionToken: string, vehicleId: string) {
+  const result = await authenticatedRequest<{ chargingSession: ServerChargingSession | null }>(
+    `/v1/charging-sessions/active?vehicleId=${encodeURIComponent(vehicleId)}`,
+    sessionToken,
+  );
+  return result.chargingSession;
+}
+
+export function stopChargingSession(sessionToken: string, sessionId: string) {
+  return authenticatedRequest<ServerChargingSession>(
+    `/v1/charging-sessions/${encodeURIComponent(sessionId)}/stop`,
+    sessionToken,
+    { method: 'POST' },
+  );
 }
 
 function authenticatedRequest<T>(path: string, token: string, options: RequestInit = {}) {

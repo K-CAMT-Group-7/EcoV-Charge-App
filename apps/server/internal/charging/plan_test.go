@@ -68,6 +68,24 @@ func TestBuildPlanRejectsInfeasibleTarget(t *testing.T) {
 	}
 }
 
+func TestEstimateCarbonSavingsUsesSamePlanSlotsAgainstImmediateCharging(t *testing.T) {
+	start := time.Date(2026, time.August, 12, 10, 0, 0, 0, time.UTC)
+	intensities := []float64{500, 400, 100, 200}
+	points := make([]CarbonPoint, len(intensities))
+	for index, intensity := range intensities {
+		points[index] = CarbonPoint{Datetime: start.Add(time.Duration(index) * time.Hour), CarbonIntensity: intensity}
+	}
+	input := PlanInput{Now: start, Deadline: start.Add(4 * time.Hour), CurrentEnergyKWh: 0, TargetEnergyKWh: 20, Vehicle: Vehicle{BatteryCapacityKWh: 60, MaxChargePowerKW: 10, ChargingEfficiency: 1}}
+	plan, err := BuildPlan(input, points)
+	if err != nil {
+		t.Fatalf("BuildPlan returned an error: %v", err)
+	}
+	optimized, immediate, savings := EstimateCarbonSavings(input, points, plan)
+	if !almostEqual(optimized, 3_000) || !almostEqual(immediate, 9_000) || !almostEqual(savings, 6_000) {
+		t.Fatalf("unexpected comparison: optimized=%f immediate=%f savings=%f", optimized, immediate, savings)
+	}
+}
+
 func TestRunBacktestCompletesAndNeverIncreasesEmissions(t *testing.T) {
 	start := time.Date(2026, time.August, 12, 0, 0, 0, 0, time.UTC)
 	points := make([]CarbonPoint, 300)

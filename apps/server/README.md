@@ -94,6 +94,16 @@ GET    /v1/charging-records/:recordId
 DELETE /v1/charging-records/:recordId
 ```
 
+### 능동형 충전 시뮬레이션
+
+클라이언트는 차량, 현재/목표 SOC, 완료 목표 시각, 현재 위치를 세션으로 등록한다. 서버는 즉시 한 번 실행한 뒤 5분 경계마다 탄소 예측과 남은 SOC를 반영해 계획을 다시 만들며, 실제 충전기는 제어하지 않는다. 각 제어 결과는 `charging_session_ticks`에 기록되고 목표 도달 시 집계된 결과가 `charging_records`에도 저장된다.
+
+```http
+POST /v1/charging-sessions
+GET  /v1/charging-sessions/active?vehicleId=:vehicleId
+POST /v1/charging-sessions/:sessionId/stop
+```
+
 ### 상태 확인
 
 ```http
