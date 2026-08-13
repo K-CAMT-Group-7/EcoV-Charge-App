@@ -7,6 +7,7 @@ import Check from 'lucide-react-native/icons/check';
 import ChevronDown from 'lucide-react-native/icons/chevron-down';
 import ChevronRight from 'lucide-react-native/icons/chevron-right';
 import Home from 'lucide-react-native/icons/house';
+import Leaf from 'lucide-react-native/icons/leaf';
 import LogOut from 'lucide-react-native/icons/log-out';
 import Menu from 'lucide-react-native/icons/menu';
 import Plus from 'lucide-react-native/icons/plus';
@@ -40,6 +41,7 @@ import {
 } from '../packages/location/api';
 import {
   getActiveChargingSession,
+  getChargingImpactSummary,
   listVehicles,
   type ServerChargingSession,
   type ServerVehicle,
@@ -260,18 +262,45 @@ function CarbonIntensityCard({ forecast, country }: { forecast: number[]; countr
         <Text style={styles.axisText}>+4h</Text>
         <Text style={styles.axisText}>+6h</Text>
       </View>
+    </View>
+  );
+}
 
-      <View style={styles.cleanWindow}>
-        <View style={styles.cleanWindowIcon}>
-          <Zap size={16} color={palette.success} strokeWidth={2} />
+function formatCarbonSavings(valueGco2: number) {
+  if (valueGco2 >= 1_000) {
+    return { value: (valueGco2 / 1_000).toFixed(valueGco2 >= 10_000 ? 1 : 2), unit: 'kg CO₂' };
+  }
+  return { value: Math.round(valueGco2).toLocaleString(), unit: 'g CO₂' };
+}
+
+function CarbonSavingsCard({
+  vehicle,
+  savingsGco2,
+  chargingCount,
+}: {
+  vehicle?: ServerVehicle;
+  savingsGco2: number;
+  chargingCount: number;
+}) {
+  const formatted = formatCarbonSavings(savingsGco2);
+  const chargeLabel = chargingCount === 1 ? 'charge' : 'charges';
+
+  return (
+    <View style={styles.savingsCard}>
+      <View style={styles.savingsIcon}>
+        <Leaf size={22} color={palette.success} strokeWidth={1.9} />
+      </View>
+      <View style={styles.savingsCopy}>
+        <Text style={styles.savingsLabel}>TOTAL CO₂ REDUCED</Text>
+        <View style={styles.savingsValueRow}>
+          <Text style={styles.savingsValue}>{vehicle ? formatted.value : '—'}</Text>
+          {vehicle && <Text style={styles.savingsUnit}>{formatted.unit}</Text>}
         </View>
-        <View style={styles.cleanWindowCopy}>
-          <Text style={styles.cleanWindowLabel}>LOWEST-CARBON WINDOW</Text>
-          <Text style={styles.cleanWindowValue}>
-            7:30–8:00 PM · {Math.max(12, Math.round(((current - minValue) / current) * 100))}%
-            cleaner
-          </Text>
-        </View>
+        <Text style={styles.savingsDetail}>
+          {vehicle
+            ? `Saved across ${chargingCount} ${chargeLabel} with ${vehicle.displayName}`
+            : 'Add a vehicle to start tracking your impact'}
+        </Text>
       </View>
     </View>
   );
@@ -431,6 +460,8 @@ export default function HomeScreen() {
   const [activeChargingSession, setActiveChargingSession] = useState<ServerChargingSession | null>(
     null,
   );
+  const [completedCarbonSavingsGco2, setCompletedCarbonSavingsGco2] = useState(0);
+  const [completedChargingCount, setCompletedChargingCount] = useState(0);
   const [showChargeVehiclePrompt, setShowChargeVehiclePrompt] = useState(false);
   const router = useRouter();
   const { sessionToken } = useAuth();
@@ -485,6 +516,35 @@ export default function HomeScreen() {
     return () => {
       active = false;
       clearInterval(timer);
+    };
+  }, [primaryVehicle, sessionToken]);
+
+  useEffect(() => {
+    let active = true;
+    async function hydrateCarbonSavings() {
+      if (!sessionToken || !primaryVehicle) {
+        if (active) {
+          setCompletedCarbonSavingsGco2(0);
+          setCompletedChargingCount(0);
+        }
+        return;
+      }
+      try {
+        const summary = await getChargingImpactSummary(sessionToken, primaryVehicle.id);
+        if (active) {
+          setCompletedCarbonSavingsGco2(Math.max(0, summary.carbonSavingsGco2));
+          setCompletedChargingCount(summary.chargingCount);
+        }
+      } catch {
+        if (active) {
+          setCompletedCarbonSavingsGco2(0);
+          setCompletedChargingCount(0);
+        }
+      }
+    }
+    void hydrateCarbonSavings();
+    return () => {
+      active = false;
     };
   }, [primaryVehicle, sessionToken]);
 
@@ -613,6 +673,18 @@ export default function HomeScreen() {
             <Text style={styles.sectionTitle}>Grid carbon</Text>
           </View>
           <CarbonIntensityCard forecast={carbonForecast} country={userLocation?.country} />
+
+          <View style={styles.sectionHeading}>
+            <Text style={styles.sectionTitle}>Charging impact</Text>
+          </View>
+          <CarbonSavingsCard
+            vehicle={primaryVehicle}
+            savingsGco2={
+              completedCarbonSavingsGco2 +
+              Math.max(0, activeChargingSession?.realizedCarbonSavingsGco2 ?? 0)
+            }
+            chargingCount={completedChargingCount + (activeChargingSession ? 1 : 0)}
+          />
         </ScrollView>
         <ChargeAction
           session={activeChargingSession}
@@ -1084,38 +1156,56 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
-  cleanWindow: {
+  savingsCard: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 16,
-    padding: 12,
-    borderRadius: 16,
-    backgroundColor: 'rgba(118,230,172,0.07)',
+    alignItems: 'flex-start',
+    padding: 18,
+    borderRadius: 24,
+    backgroundColor: palette.surface,
     borderWidth: 1,
-    borderColor: 'rgba(118,230,172,0.12)',
+    borderColor: palette.border,
   },
-  cleanWindowIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 11,
+  savingsIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(118,230,172,0.11)',
   },
-  cleanWindowCopy: {
-    paddingLeft: 11,
+  savingsCopy: {
+    flex: 1,
+    paddingLeft: 14,
   },
-  cleanWindowLabel: {
+  savingsLabel: {
     color: palette.success,
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 1,
+    letterSpacing: 1.2,
   },
-  cleanWindowValue: {
-    color: palette.text,
-    fontSize: 13,
-    fontWeight: '700',
+  savingsValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
     marginTop: 4,
+  },
+  savingsValue: {
+    color: palette.text,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '700',
+    letterSpacing: -0.8,
+  },
+  savingsUnit: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 7,
+  },
+  savingsDetail: {
+    color: palette.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
   },
   chargeActionWrap: {
     position: 'absolute',

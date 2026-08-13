@@ -278,6 +278,20 @@ func (store *Store) ListChargingRecords(
 	return records, rows.Err()
 }
 
+func (store *Store) GetChargingImpactSummary(
+	ctx context.Context,
+	userID string,
+	vehicleID string,
+) (account.ChargingImpactSummary, error) {
+	var summary account.ChargingImpactSummary
+	err := store.pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(carbon_savings_gco2), 0)
+		FROM charging_records
+		WHERE user_id = $1 AND vehicle_id = $2
+	`, userID, vehicleID).Scan(&summary.ChargingCount, &summary.CarbonSavingsGCO2)
+	return summary, err
+}
+
 func (store *Store) GetChargingRecord(
 	ctx context.Context,
 	userID string,

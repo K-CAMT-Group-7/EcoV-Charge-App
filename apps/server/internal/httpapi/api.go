@@ -105,6 +105,7 @@ func New(dependencies Dependencies) *fiber.App {
 	authenticated.Delete("/vehicles/:vehicleId", api.deleteVehicle)
 	authenticated.Get("/charging-records", api.listChargingRecords)
 	authenticated.Post("/charging-records", api.createChargingRecord)
+	authenticated.Get("/charging-records/impact-summary", api.getChargingImpactSummary)
 	authenticated.Get("/charging-records/:recordId", api.getChargingRecord)
 	authenticated.Delete("/charging-records/:recordId", api.deleteChargingRecord)
 	authenticated.Post("/charging-sessions", api.createChargingSession)
