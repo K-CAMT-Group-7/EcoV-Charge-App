@@ -1,13 +1,17 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 
 import { AuthProvider, useAuth } from '@/packages/auth/provider';
-import { vehicleChargingStore } from '@/packages/vehicles';
-
-void vehicleChargingStore.ready;
 
 export default function RootLayout() {
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      globalThis.localStorage?.removeItem('ecov-charge-vehicles');
+    }
+  }, []);
+
   return (
     <AuthProvider>
       <StatusBar style="light" backgroundColor="#07111F" />

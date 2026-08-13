@@ -19,6 +19,36 @@ type googleLoginRequest struct {
 	DeviceName string `json:"deviceName"`
 }
 
+type vehicleRequest struct {
+	DisplayName           string   `json:"displayName"`
+	Manufacturer          string   `json:"manufacturer"`
+	Model                 string   `json:"model"`
+	ModelYear             int      `json:"modelYear"`
+	BatteryCapacityKWh    float64  `json:"batteryCapacityKwh"`
+	ACChargingPowerKW     float64  `json:"acChargingPowerKw"`
+	DCFastChargingPowerKW float64  `json:"dcFastChargingPowerKw"`
+	ChargingEfficiency    float64  `json:"chargingEfficiency"`
+	ConnectorTypes        []string `json:"connectorTypes"`
+}
+
+func (request vehicleRequest) vehicle() account.Vehicle {
+	connectorTypes := make([]string, len(request.ConnectorTypes))
+	for index, connectorType := range request.ConnectorTypes {
+		connectorTypes[index] = strings.TrimSpace(connectorType)
+	}
+	return account.Vehicle{
+		DisplayName:           strings.TrimSpace(request.DisplayName),
+		Manufacturer:          strings.TrimSpace(request.Manufacturer),
+		Model:                 strings.TrimSpace(request.Model),
+		ModelYear:             request.ModelYear,
+		BatteryCapacityKWh:    request.BatteryCapacityKWh,
+		ACChargingPowerKW:     request.ACChargingPowerKW,
+		DCFastChargingPowerKW: request.DCFastChargingPowerKW,
+		ChargingEfficiency:    request.ChargingEfficiency,
+		ConnectorTypes:        connectorTypes,
+	}
+}
+
 func (api *API) loginGoogle(c fiber.Ctx) error {
 	if api.auth == nil {
 		return fiber.NewError(fiber.StatusServiceUnavailable, "authentication is not configured")
@@ -65,10 +95,11 @@ func (api *API) logout(c fiber.Ctx) error {
 }
 
 func (api *API) createVehicle(c fiber.Ctx) error {
-	var vehicle account.Vehicle
-	if err := c.Bind().Body(&vehicle); err != nil {
+	var request vehicleRequest
+	if err := c.Bind().Body(&request); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON request body")
 	}
+	vehicle := request.vehicle()
 	if err := validateVehicle(vehicle); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
@@ -88,10 +119,11 @@ func (api *API) listVehicles(c fiber.Ctx) error {
 }
 
 func (api *API) updateVehicle(c fiber.Ctx) error {
-	var vehicle account.Vehicle
-	if err := c.Bind().Body(&vehicle); err != nil {
+	var request vehicleRequest
+	if err := c.Bind().Body(&request); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON request body")
 	}
+	vehicle := request.vehicle()
 	if err := validateVehicle(vehicle); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
@@ -195,6 +227,11 @@ func validateVehicle(vehicle account.Vehicle) error {
 	}
 	if len(vehicle.ConnectorTypes) == 0 {
 		return errors.New("at least one connector type is required")
+	}
+	for _, connectorType := range vehicle.ConnectorTypes {
+		if connectorType == "" {
+			return errors.New("connector types cannot be empty")
+		}
 	}
 	return nil
 }
