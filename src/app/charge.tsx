@@ -250,7 +250,13 @@ export default function ChargeScreen() {
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.shell}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.back}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="이전 화면으로 돌아가기"
+            onPress={() => router.back()}
+            hitSlop={3}
+            style={({ pressed }) => [styles.back, pressed && styles.pressed]}
+          >
             <ChevronLeft size={22} color={colors.text} />
           </Pressable>
           <Text style={styles.title}>Smart charging</Text>
@@ -850,14 +856,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   back: {
-    width: 42,
-    height: 42,
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 14,
     backgroundColor: colors.surface,
   },
-  headerSpacer: { width: 42 },
+  headerSpacer: { width: 48 },
   title: { color: colors.text, fontSize: 16, fontWeight: '700' },
   content: { padding: 20, gap: 10, paddingBottom: 30 },
   dashboard: {
@@ -1034,6 +1040,7 @@ const styles = StyleSheet.create({
   },
   disableForceActionText: { color: colors.success },
   disabled: { opacity: 0.45 },
+  pressed: { opacity: 0.68 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(2,7,14,.78)',

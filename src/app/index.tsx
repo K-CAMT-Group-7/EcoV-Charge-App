@@ -302,6 +302,7 @@ function AppMenu() {
         accessibilityRole="button"
         accessibilityLabel="메뉴 열기"
         onPress={() => setOpen(true)}
+        hitSlop={3}
         style={({ pressed }) => [styles.menuButton, pressed && styles.pressed]}
       >
         <Menu size={20} color={palette.text} strokeWidth={1.9} />
@@ -322,7 +323,8 @@ function AppMenu() {
                 accessibilityRole="button"
                 accessibilityLabel="메뉴 닫기"
                 onPress={() => setOpen(false)}
-                style={styles.closeButton}
+                hitSlop={6}
+                style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
               >
                 <X size={18} color={palette.muted} strokeWidth={1.9} />
               </Pressable>
@@ -530,24 +532,23 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.shell}>
+        <View style={styles.header}>
+          <View>
+            <VehicleSelector
+              vehicles={vehicles}
+              selectedVehicle={primaryVehicle}
+              onChange={setSelectedVehicleId}
+              onManageVehicles={() => router.push('/vehicles')}
+            />
+            <Text style={styles.locationStatus}>{locationStatus}</Text>
+          </View>
+          <AppMenu />
+        </View>
         <ScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           bounces={false}
         >
-          <View style={styles.header}>
-            <View>
-              <VehicleSelector
-                vehicles={vehicles}
-                selectedVehicle={primaryVehicle}
-                onChange={setSelectedVehicleId}
-                onManageVehicles={() => router.push('/vehicles')}
-              />
-              <Text style={styles.locationStatus}>{locationStatus}</Text>
-            </View>
-            <AppMenu />
-          </View>
-
           <View style={styles.intro}>
             <Text style={styles.eyebrow}>GOOD EVENING</Text>
             <Text style={styles.title}>Everything is flowing.</Text>
@@ -677,13 +678,14 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 10,
     paddingBottom: 118,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingTop: 10,
+    paddingHorizontal: 20,
   },
   locationStatus: {
     color: palette.muted,
@@ -733,8 +735,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   menuButton: {
-    width: 42,
-    height: 42,
+    width: 48,
+    height: 48,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1219,8 +1221,8 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   closeButton: {
-    width: 36,
-    height: 36,
+    width: 48,
+    height: 48,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',

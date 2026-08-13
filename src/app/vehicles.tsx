@@ -85,6 +85,7 @@ export default function VehiclesScreen() {
             accessibilityRole="button"
             accessibilityLabel="홈으로 돌아가기"
             onPress={() => router.back()}
+            hitSlop={3}
             style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
           >
             <ChevronLeft size={22} color={colors.text} strokeWidth={2} />
@@ -96,9 +97,7 @@ export default function VehiclesScreen() {
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <Text style={styles.eyebrow}>MY VEHICLES</Text>
           <Text style={styles.title}>Choose your EV.</Text>
-          <Text style={styles.subtitle}>
-            Select car to add to your account.
-          </Text>
+          <Text style={styles.subtitle}>Select car to add to your account.</Text>
 
           <Text style={styles.sectionTitle}>Tesla catalog</Text>
           <View style={styles.catalogGrid}>
@@ -235,8 +234,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   iconButton: {
-    width: 42,
-    height: 42,
+    width: 48,
+    height: 48,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
@@ -245,7 +244,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   headerTitle: { color: colors.text, fontSize: 16, fontWeight: '700' },
-  headerSpacer: { width: 42 },
+  headerSpacer: { width: 48 },
   content: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 48 },
   eyebrow: { color: colors.primary, fontSize: 11, fontWeight: '800', letterSpacing: 2 },
   title: { color: colors.text, fontSize: 30, fontWeight: '700', marginTop: 9 },
