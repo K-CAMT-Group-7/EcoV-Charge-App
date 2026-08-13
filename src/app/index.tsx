@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import type { LucideIcon } from 'lucide-react-native';
 import Activity from 'lucide-react-native/icons/activity';
 import ArrowRight from 'lucide-react-native/icons/arrow-right';
+import Car from 'lucide-react-native/icons/car';
 import Check from 'lucide-react-native/icons/check';
 import ChevronDown from 'lucide-react-native/icons/chevron-down';
 import ChevronRight from 'lucide-react-native/icons/chevron-right';
@@ -36,6 +37,7 @@ import {
   saveUserLocation,
   type UserCountry,
 } from '../packages/location/api';
+import { listVehicles, type ServerVehicle } from '../packages/server/api';
 
 const palette = {
   background: '#07111F',
@@ -48,67 +50,90 @@ const palette = {
   muted: '#8796AA',
 } as const;
 
-const homes = ['My Home', 'Lake House', 'Studio'] as const;
-
-type HomeName = (typeof homes)[number];
-
-function HomeSelector({
-  value,
+function VehicleSelector({
+  vehicles,
+  selectedVehicle,
   onChange,
+  onManageVehicles,
 }: {
-  value: HomeName;
-  onChange: (home: HomeName) => void;
+  vehicles: ServerVehicle[];
+  selectedVehicle?: ServerVehicle;
+  onChange: (vehicleId: string) => void;
+  onManageVehicles: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const label = selectedVehicle?.displayName ?? 'Add a vehicle';
 
   return (
     <>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`현재 위치 ${value}. 위치 변경`}
-        onPress={() => setOpen(true)}
-        style={({ pressed }) => [styles.homeSelector, pressed && styles.pressed]}
+        accessibilityLabel={`현재 차량 ${label}. 차량 변경`}
+        onPress={() => (vehicles.length ? setOpen(true) : onManageVehicles())}
+        style={({ pressed }) => [styles.vehicleSelector, pressed && styles.pressed]}
       >
-        <View style={styles.homeMark}>
-          <Home size={18} color={palette.primary} strokeWidth={2} />
+        <View style={styles.vehicleMark}>
+          <Car size={18} color={palette.primary} strokeWidth={2} />
         </View>
-        <View>
-          <Text style={styles.selectorLabel}>LOCATION</Text>
+        <View style={styles.selectorCopy}>
+          <Text style={styles.selectorLabel}>VEHICLE</Text>
           <View style={styles.selectorValueRow}>
-            <Text style={styles.selectorValue}>{value}</Text>
-            <ChevronDown size={15} color={palette.muted} strokeWidth={2} />
+            <Text numberOfLines={1} style={styles.selectorValue}>
+              {label}
+            </Text>
+            {vehicles.length ? (
+              <ChevronDown size={15} color={palette.muted} strokeWidth={2} />
+            ) : (
+              <ChevronRight size={15} color={palette.primary} strokeWidth={2} />
+            )}
           </View>
         </View>
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setOpen(false)}>
-          <View style={styles.homeMenu}>
-            <Text style={styles.homeMenuTitle}>Choose a home</Text>
-            {homes.map((home) => (
-              <Pressable
-                key={home}
-                onPress={() => {
-                  onChange(home);
-                  setOpen(false);
-                }}
-                style={({ pressed }) => [styles.homeOption, pressed && styles.optionPressed]}
-              >
-                <View style={[styles.optionIcon, home === value && styles.optionIconActive]}>
-                  <Home
-                    size={17}
-                    color={home === value ? palette.primary : palette.muted}
-                    strokeWidth={2}
-                  />
-                </View>
-                <Text
-                  style={[styles.homeOptionText, home === value && styles.homeOptionTextActive]}
+          <View style={styles.vehicleMenu}>
+            <Text style={styles.vehicleMenuTitle}>Choose a vehicle</Text>
+            {vehicles.map((vehicle) => {
+              const selected = vehicle.id === selectedVehicle?.id;
+              return (
+                <Pressable
+                  key={vehicle.id}
+                  onPress={() => {
+                    onChange(vehicle.id);
+                    setOpen(false);
+                  }}
+                  style={({ pressed }) => [styles.vehicleOption, pressed && styles.optionPressed]}
                 >
-                  {home}
-                </Text>
-                {home === value && <Check size={17} color={palette.primary} strokeWidth={2.3} />}
-              </Pressable>
-            ))}
+                  <View style={[styles.optionIcon, selected && styles.optionIconActive]}>
+                    <Car
+                      size={17}
+                      color={selected ? palette.primary : palette.muted}
+                      strokeWidth={2}
+                    />
+                  </View>
+                  <View style={styles.vehicleOptionCopy}>
+                    <Text
+                      style={[styles.vehicleOptionText, selected && styles.vehicleOptionTextActive]}
+                    >
+                      {vehicle.displayName}
+                    </Text>
+                    <Text style={styles.vehicleOptionDetail}>{vehicle.batteryCapacityKwh} kWh</Text>
+                  </View>
+                  {selected && <Check size={17} color={palette.primary} strokeWidth={2.3} />}
+                </Pressable>
+              );
+            })}
+            <Pressable
+              onPress={() => {
+                setOpen(false);
+                onManageVehicles();
+              }}
+              style={({ pressed }) => [styles.manageVehicles, pressed && styles.optionPressed]}
+            >
+              <Text style={styles.manageVehiclesText}>Manage vehicles</Text>
+              <ChevronRight size={16} color={palette.primary} strokeWidth={2} />
+            </Pressable>
           </View>
         </Pressable>
       </Modal>
@@ -248,6 +273,7 @@ function CarbonIntensityCard({ forecast, country }: { forecast: number[]; countr
 
 const navItems: Array<{ label: string; icon: LucideIcon }> = [
   { label: 'Home', icon: Home },
+  { label: 'Vehicles', icon: Car },
   { label: 'Energy', icon: Zap },
   { label: 'Activity', icon: Activity },
   { label: 'Settings', icon: Settings },
@@ -256,6 +282,7 @@ const navItems: Array<{ label: string; icon: LucideIcon }> = [
 function AppMenu() {
   const [open, setOpen] = useState(false);
   const { user, signOut } = useAuth();
+  const router = useRouter();
   const initials = (user?.displayName || user?.email || 'EC')
     .split(/\s+/)
     .map((part) => part[0])
@@ -300,7 +327,10 @@ function AppMenu() {
               return (
                 <Pressable
                   key={item.label}
-                  onPress={() => setOpen(false)}
+                  onPress={() => {
+                    setOpen(false);
+                    if (item.label === 'Vehicles') router.push('/vehicles');
+                  }}
                   style={({ pressed }) => [styles.menuItem, pressed && styles.optionPressed]}
                 >
                   <View style={[styles.menuItemIcon, index === 0 && styles.menuItemIconActive]}>
@@ -362,11 +392,39 @@ function ChargeAction({ onPress }: { onPress: () => void }) {
 }
 
 export default function HomeScreen() {
-  const [selectedHome, setSelectedHome] = useState<HomeName>('My Home');
   const [userLocation, setUserLocation] = useState<UserCountry | null>(null);
   const [carbonForecast, setCarbonForecast] = useState<number[]>(() => getFallbackForecast());
   const [locationStatus, setLocationStatus] = useState('Detecting your location…');
+  const [vehicles, setVehicles] = useState<ServerVehicle[]>([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const router = useRouter();
+  const { sessionToken } = useAuth();
+  const primaryVehicle =
+    vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? vehicles[0];
+
+  useEffect(() => {
+    let active = true;
+    async function hydrateVehicles() {
+      if (!sessionToken) return;
+      try {
+        const accountVehicles = await listVehicles(sessionToken);
+        if (active) {
+          setVehicles(accountVehicles);
+          setSelectedVehicleId((current) =>
+            current && accountVehicles.some((vehicle) => vehicle.id === current)
+              ? current
+              : (accountVehicles[0]?.id ?? null),
+          );
+        }
+      } catch {
+        if (active) setVehicles([]);
+      }
+    }
+    void hydrateVehicles();
+    return () => {
+      active = false;
+    };
+  }, [sessionToken]);
 
   useEffect(() => {
     let active = true;
@@ -417,7 +475,12 @@ export default function HomeScreen() {
         >
           <View style={styles.header}>
             <View>
-              <HomeSelector value={selectedHome} onChange={setSelectedHome} />
+              <VehicleSelector
+                vehicles={vehicles}
+                selectedVehicle={primaryVehicle}
+                onChange={setSelectedVehicleId}
+                onManageVehicles={() => router.push('/vehicles')}
+              />
               <Text style={styles.locationStatus}>{locationStatus}</Text>
             </View>
             <AppMenu />
@@ -430,7 +493,7 @@ export default function HomeScreen() {
 
           <View style={styles.homeVisual}>
             <Image
-              accessibilityLabel="차량이 충전 중인 현대적인 주택과 차고"
+              accessibilityLabel="전기차가 연결된 충전 공간"
               source={require('../../assets/images/home-garage-hero.png')}
               resizeMode="cover"
               style={styles.heroImage}
@@ -440,16 +503,29 @@ export default function HomeScreen() {
               <View style={styles.liveDot} />
               <Text style={styles.liveText}>LIVE</Text>
             </View>
-            <View style={styles.vehicleStatus}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="내 차량 관리"
+              onPress={() => router.push('/vehicles')}
+              style={({ pressed }) => [styles.vehicleStatus, pressed && styles.pressed]}
+            >
               <View>
-                <Text style={styles.vehicleName}>Tesla Model Y Long Range</Text>
-                <Text style={styles.vehicleDetail}>Garage · Charging</Text>
+                <Text style={styles.vehicleName}>
+                  {primaryVehicle?.displayName ?? 'Add your first vehicle'}
+                </Text>
+                <Text style={styles.vehicleDetail}>
+                  {primaryVehicle ? 'Selected vehicle · Ready' : 'Choose a Tesla model'}
+                </Text>
               </View>
-              <View style={styles.chargeValueWrap}>
-                <Text style={styles.chargeValue}>72%</Text>
-                <Text style={styles.chargeTime}>1h 24m left</Text>
-              </View>
-            </View>
+              {primaryVehicle ? (
+                <View style={styles.chargeValueWrap}>
+                  <Text style={styles.chargeValue}>{primaryVehicle.batteryCapacityKwh}</Text>
+                  <Text style={styles.chargeTime}>kWh capacity</Text>
+                </View>
+              ) : (
+                <ChevronRight size={21} color={palette.primary} strokeWidth={2} />
+              )}
+            </Pressable>
           </View>
 
           <View style={styles.sectionHeading}>
@@ -458,7 +534,13 @@ export default function HomeScreen() {
           </View>
           <CarbonIntensityCard forecast={carbonForecast} country={userLocation?.country} />
         </ScrollView>
-        <ChargeAction onPress={() => router.push('/charge')} />
+        <ChargeAction
+          onPress={() =>
+            primaryVehicle
+              ? router.push({ pathname: '/charge', params: { vehicleId: primaryVehicle.id } })
+              : router.push('/vehicles')
+          }
+        />
       </View>
     </SafeAreaView>
   );
@@ -493,15 +575,16 @@ const styles = StyleSheet.create({
     marginLeft: 53,
     marginTop: -2,
   },
-  homeSelector: {
+  vehicleSelector: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 11,
     paddingVertical: 6,
     paddingRight: 12,
     borderRadius: 14,
+    maxWidth: 280,
   },
-  homeMark: {
+  vehicleMark: {
     width: 42,
     height: 42,
     borderRadius: 14,
@@ -518,12 +601,16 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     fontWeight: '700',
   },
+  selectorCopy: {
+    flexShrink: 1,
+  },
   selectorValueRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
   },
   selectorValue: {
+    flexShrink: 1,
     color: palette.text,
     fontSize: 16,
     lineHeight: 21,
@@ -1040,15 +1127,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     backgroundColor: 'rgba(0, 5, 13, 0.72)',
   },
-  homeMenu: {
-    width: 270,
+  vehicleMenu: {
+    width: 300,
     padding: 10,
     borderRadius: 23,
     backgroundColor: palette.surfaceElevated,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
   },
-  homeMenuTitle: {
+  vehicleMenuTitle: {
     color: palette.muted,
     fontSize: 12,
     fontWeight: '700',
@@ -1057,7 +1144,7 @@ const styles = StyleSheet.create({
     paddingTop: 7,
     paddingBottom: 9,
   },
-  homeOption: {
+  vehicleOption: {
     minHeight: 55,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1079,13 +1166,35 @@ const styles = StyleSheet.create({
   optionIconActive: {
     backgroundColor: 'rgba(114,213,255,0.1)',
   },
-  homeOptionText: {
+  vehicleOptionCopy: {
     flex: 1,
+  },
+  vehicleOptionText: {
     color: palette.muted,
     fontSize: 15,
     fontWeight: '600',
   },
-  homeOptionTextActive: {
+  vehicleOptionTextActive: {
     color: palette.text,
+  },
+  vehicleOptionDetail: {
+    color: palette.muted,
+    fontSize: 11,
+    marginTop: 3,
+  },
+  manageVehicles: {
+    minHeight: 48,
+    marginTop: 6,
+    paddingHorizontal: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: palette.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  manageVehiclesText: {
+    color: palette.primary,
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

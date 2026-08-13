@@ -20,7 +20,7 @@ interface CliOptions {
 
 const options = parseArguments(process.argv.slice(2));
 const vehicle: BacktestVehicle = {
-  // Same default specification as src/packages/vehicles/dummy-data.ts.
+  // Same representative Model Y specification as the client vehicle catalog.
   batteryCapacityKwh: 79.7,
   maxChargePowerKw: 11,
   chargingEfficiency: 0.92,

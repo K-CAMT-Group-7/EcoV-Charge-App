@@ -120,20 +120,9 @@ bun run ios
 
 현재 제공하는 서버 API는 Google 로그인, 사용자 세션, PostgreSQL 기반 차량·충전 이력 관리, 탄소 집약도 예측 프록시, 저탄소 충전 계획 생성, 100건 백테스트다. 자세한 요청 형식은 [서버 README](apps/server/README.md)를 참고한다.
 
-### 차량 및 충전 데이터 저장소
+### 차량 데이터
 
-`VehicleChargingStore`는 차량 메타데이터와 충전 이력을 앱 문서 디렉터리의 JSON 파일에 영구 저장하고 조회하는 클래스입니다. 앱 시작 시 저장된 데이터를 복원하며, 저장/삭제 작업은 파일에 즉시 반영됩니다.
-
-```ts
-import { vehicleChargingStore } from '@/packages/vehicles';
-
-await vehicleChargingStore.ready;
-const vehicle = vehicleChargingStore.getVehicle('tesla-model-y-long-range');
-const latestCharge = vehicleChargingStore.getLatestChargingRecord('tesla-model-y-long-range');
-const recentCharges = vehicleChargingStore.listChargingRecords({
-  startedFrom: '2026-08-01T00:00:00.000Z',
-});
-```
+차량은 로그인한 사용자 계정에 귀속되며 Go 서버와 PostgreSQL에 저장됩니다. 클라이언트의 Tesla 차량 카탈로그에서 모델을 선택하면 `POST /v1/vehicles`를 통해 계정에 추가됩니다.
 
 ## 핵심 가치
 

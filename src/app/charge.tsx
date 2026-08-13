@@ -1,9 +1,12 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import ChevronLeft from 'lucide-react-native/icons/chevron-left';
 import Zap from 'lucide-react-native/icons/zap';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { useAuth } from '@/packages/auth/provider';
+import { listVehicles, type ServerVehicle } from '@/packages/server/api';
 
 const colors = {
   background: '#07111F',
@@ -18,7 +21,31 @@ const colors = {
 
 export default function ChargeScreen() {
   const router = useRouter();
+  const { vehicleId } = useLocalSearchParams<{ vehicleId?: string }>();
   const [started, setStarted] = useState(false);
+  const [vehicle, setVehicle] = useState<ServerVehicle | null>(null);
+  const { sessionToken } = useAuth();
+
+  useEffect(() => {
+    let active = true;
+    async function loadVehicle() {
+      if (!sessionToken) return;
+      try {
+        const vehicles = await listVehicles(sessionToken);
+        if (active) {
+          setVehicle(
+            vehicles.find((candidate) => candidate.id === vehicleId) ?? vehicles[0] ?? null,
+          );
+        }
+      } catch {
+        if (active) setVehicle(null);
+      }
+    }
+    void loadVehicle();
+    return () => {
+      active = false;
+    };
+  }, [sessionToken, vehicleId]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -26,7 +53,7 @@ export default function ChargeScreen() {
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="홈으로 돌아가기"
+            accessibilityLabel="이전 화면으로 돌아가기"
             onPress={() => router.back()}
             style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
           >
@@ -48,14 +75,16 @@ export default function ChargeScreen() {
             <Text style={styles.readyDetail}>
               {started
                 ? 'Your vehicle is charging with clean energy.'
-                : 'Tesla Model Y Long Range · My Home Garage'}
+                : vehicle
+                  ? vehicle.displayName
+                  : 'Add a vehicle to your account first'}
             </Text>
           </View>
 
           <View style={styles.summaryCard}>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Current battery</Text>
-              <Text style={styles.summaryValue}>72%</Text>
+              <Text style={styles.summaryValue}>—</Text>
             </View>
             <View style={styles.divider} />
             <View style={styles.summaryRow}>
@@ -65,20 +94,30 @@ export default function ChargeScreen() {
             <View style={styles.divider} />
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Energy source</Text>
-              <Text style={styles.cleanValue}>Solar + Grid</Text>
+              <Text style={styles.cleanValue}>Grid forecast</Text>
             </View>
           </View>
 
           <View style={styles.notice}>
             <View style={styles.noticeDot} />
-            <Text style={styles.noticeText}>Cleanest charging window is available now.</Text>
+            <Text style={styles.noticeText}>
+              {vehicle
+                ? `Charging plan will use the ${vehicle.batteryCapacityKwh} kWh battery specification.`
+                : 'Select a Tesla model before starting a charging session.'}
+            </Text>
           </View>
         </View>
 
         <View style={styles.bottomAction}>
           <Pressable
             accessibilityRole="button"
-            onPress={() => setStarted((value) => !value)}
+            onPress={() => {
+              if (!vehicle) {
+                router.push('/vehicles');
+                return;
+              }
+              setStarted((value) => !value);
+            }}
             style={({ pressed }) => [
               styles.startButton,
               started && styles.stopButton,
@@ -86,7 +125,7 @@ export default function ChargeScreen() {
             ]}
           >
             <Text style={[styles.startButtonText, started && styles.stopButtonText]}>
-              {started ? 'Stop charging' : 'Start charging now'}
+              {started ? 'Stop charging' : vehicle ? 'Start charging now' : 'Add a vehicle'}
             </Text>
           </Pressable>
         </View>

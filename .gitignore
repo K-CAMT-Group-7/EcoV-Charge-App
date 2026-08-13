@@ -44,3 +44,6 @@ example
 
 # misc
 .env
+
+# Generated charging-analysis reports
+/reports/*.json

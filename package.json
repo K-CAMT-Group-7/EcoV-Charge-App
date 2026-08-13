@@ -18,6 +18,8 @@
     "typecheck": "node ./node_modules/@typescript/native/bin/tsc --noEmit",
     "typecheck:compat": "node ./node_modules/typescript/bin/tsc --noEmit",
     "backtest": "bun run scripts/backtest-charging.ts",
+    "backtest:global": "bun run scripts/backtest-model-y-global.ts",
+    "backtest:live-global": "bun run scripts/backtest-model-y-live-global.ts",
     "test": "bun test",
     "server:dev": "cd apps/server && go run ./cmd/api",
     "server:test": "cd apps/server && go test ./...",
