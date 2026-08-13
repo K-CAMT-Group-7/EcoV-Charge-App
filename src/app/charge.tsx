@@ -46,7 +46,9 @@ export default function ChargeScreen() {
               {started ? 'Charging started' : 'Ready to charge'}
             </Text>
             <Text style={styles.readyDetail}>
-              {started ? 'Your vehicle is charging with clean energy.' : 'Model E · My Home Garage'}
+              {started
+                ? 'Your vehicle is charging with clean energy.'
+                : 'Tesla Model Y Long Range · My Home Garage'}
             </Text>
           </View>
 
