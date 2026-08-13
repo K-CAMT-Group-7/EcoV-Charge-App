@@ -62,7 +62,7 @@ export function GoogleSignInButton({ disabled, onCredential, onError }: GoogleSi
 
     if (!googleWebClientId) {
       onErrorRef.current(
-        new Error('EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID 환경변수가 설정되지 않았습니다.'),
+        new Error('The EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID environment variable is not configured.'),
       );
       return;
     }
@@ -78,7 +78,7 @@ export function GoogleSignInButton({ disabled, onCredential, onError }: GoogleSi
           ux_mode: 'popup',
           callback: (response) => {
             if (!response.credential) {
-              onErrorRef.current(new Error('Google에서 ID 토큰을 반환하지 않았습니다.'));
+              onErrorRef.current(new Error('Google did not return an ID token.'));
               return;
             }
             void onCredentialRef.current(response.credential).catch(onErrorRef.current);
@@ -99,7 +99,7 @@ export function GoogleSignInButton({ disabled, onCredential, onError }: GoogleSi
       .catch((cause: unknown) => {
         if (!active) return;
         onErrorRef.current(
-          cause instanceof Error ? cause : new Error('Google 로그인을 불러오지 못했습니다.'),
+          cause instanceof Error ? cause : new Error('Unable to load Google Sign-In.'),
         );
       });
 
@@ -121,7 +121,7 @@ export function GoogleSignInButton({ disabled, onCredential, onError }: GoogleSi
         }}
         style={styles.button}
       />
-      {disabled && <Text style={styles.progress}>Google에 연결 중…</Text>}
+      {disabled && <Text style={styles.progress}>Connecting to Google…</Text>}
     </View>
   );
 }
@@ -138,9 +138,9 @@ function loadGoogleIdentity(): Promise<GoogleIdentityAPI> {
 
     const handleLoad = () => {
       if (window.google) resolve(window.google);
-      else reject(new Error('Google 로그인 SDK가 올바르게 초기화되지 않았습니다.'));
+      else reject(new Error('The Google Sign-In SDK did not initialize correctly.'));
     };
-    const handleError = () => reject(new Error('Google 로그인 SDK를 불러오지 못했습니다.'));
+    const handleError = () => reject(new Error('Unable to load the Google Sign-In SDK.'));
 
     script.addEventListener('load', handleLoad, { once: true });
     script.addEventListener('error', handleError, { once: true });
