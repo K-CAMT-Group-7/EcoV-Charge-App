@@ -91,15 +91,43 @@ func (scheduler Scheduler) runSession(ctx context.Context, session account.Charg
 	}
 	tick := account.ChargingSessionTick{ControlledAt: now}
 	tick.EstimatedOptimizedEmissionsGCO2, tick.EstimatedImmediateEmissionsGCO2, tick.EstimatedCarbonSavingsGCO2 = EstimateCarbonSavings(input, forecast.Points, plan)
-	for _, slot := range plan.Slots {
-		if slot.Datetime.Equal(now) {
-			value := slot.CarbonIntensity
-			tick.CarbonIntensity = &value
-			tick.ChargingPowerKW = slot.ChargingPowerKW
-			tick.BatteryEnergyKWh = slot.BatteryEnergyKWh
-			tick.GridEnergyKWh = slot.GridEnergyKWh
-			tick.EmissionsGCO2 = slot.EstimatedCO2G
+	var currentCarbonIntensity *float64
+	for _, point := range forecast.Points {
+		if !point.Datetime.Before(now) {
+			value := point.CarbonIntensity
+			currentCarbonIntensity = &value
 			break
+		}
+	}
+	totalBaselineBatteryEnergy := vehicle.BatteryCapacityKWh * (session.TargetBatteryPercent - session.InitialBatteryPercent) / 100
+	baselineRemaining := math.Max(0, totalBaselineBatteryEnergy-session.AccumulatedBaselineBatteryEnergyKWh)
+	tick.BaselineBatteryEnergyKWh = math.Min(baselineRemaining, vehicle.ACChargingPowerKW*vehicle.ChargingEfficiency*(5.0/60.0))
+	tick.BaselineGridEnergyKWh = tick.BaselineBatteryEnergyKWh / vehicle.ChargingEfficiency
+	if currentCarbonIntensity != nil {
+		tick.BaselineEmissionsGCO2 = *currentCarbonIntensity * tick.BaselineGridEnergyKWh
+	}
+	if session.ControlMode == "force" {
+		tick.EstimatedOptimizedEmissionsGCO2 = tick.EstimatedImmediateEmissionsGCO2
+		tick.EstimatedCarbonSavingsGCO2 = 0
+		remaining := input.TargetEnergyKWh - input.CurrentEnergyKWh
+		tick.BatteryEnergyKWh = math.Min(remaining, vehicle.ACChargingPowerKW*vehicle.ChargingEfficiency*(5.0/60.0))
+		tick.GridEnergyKWh = tick.BatteryEnergyKWh / vehicle.ChargingEfficiency
+		tick.ChargingPowerKW = tick.GridEnergyKWh / (5.0 / 60.0)
+		if currentCarbonIntensity != nil {
+			tick.CarbonIntensity = currentCarbonIntensity
+			tick.EmissionsGCO2 = *currentCarbonIntensity * tick.GridEnergyKWh
+		}
+	} else {
+		for _, slot := range plan.Slots {
+			if slot.Datetime.Equal(now) {
+				value := slot.CarbonIntensity
+				tick.CarbonIntensity = &value
+				tick.ChargingPowerKW = slot.ChargingPowerKW
+				tick.BatteryEnergyKWh = slot.BatteryEnergyKWh
+				tick.GridEnergyKWh = slot.GridEnergyKWh
+				tick.EmissionsGCO2 = slot.EstimatedCO2G
+				break
+			}
 		}
 	}
 	tick.BatteryPercentGain = tick.BatteryEnergyKWh / vehicle.BatteryCapacityKWh * 100

@@ -111,6 +111,8 @@ func New(dependencies Dependencies) *fiber.App {
 	authenticated.Post("/charging-sessions/estimate", api.estimateChargingSession)
 	authenticated.Get("/charging-sessions/active", api.getActiveChargingSession)
 	authenticated.Post("/charging-sessions/:sessionId/stop", api.stopChargingSession)
+	authenticated.Post("/charging-sessions/:sessionId/force-top-up", api.forceTopUpChargingSession)
+	authenticated.Post("/charging-sessions/:sessionId/disable-force-top-up", api.disableForceTopUpChargingSession)
 
 	return app
 }

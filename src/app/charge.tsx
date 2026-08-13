@@ -22,11 +22,14 @@ import { useAuth } from '@/packages/auth/provider';
 import { getCurrentLocation, loadSavedUserLocation } from '@/packages/location/api';
 import {
   createChargingSession,
+  disableForceTopUpChargingSession,
   estimateChargingSession,
+  forceTopUpChargingSession,
   getActiveChargingSession,
   listVehicles,
   stopChargingSession,
   type ChargingEstimate,
+  ServerApiError,
   type ServerChargingSession,
   type ServerVehicle,
 } from '@/packages/server/api';
@@ -50,11 +53,18 @@ export default function ChargeScreen() {
   const [selectedVehicleId, setSelectedVehicleId] = useState(vehicleId ?? '');
   const [targetPercent, setTargetPercent] = useState(90);
   const [targetAt, setTargetAt] = useState<Date | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [clockSeed, setClockSeed] = useState(() => defaultClockValue());
   const [showClock, setShowClock] = useState(false);
   const [session, setSession] = useState<ServerChargingSession | null>(null);
   const [estimate, setEstimate] = useState<ChargingEstimate | null>(null);
+  const [estimateFeasible, setEstimateFeasible] = useState<boolean | null>(null);
   const [estimating, setEstimating] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [forcing, setForcing] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<'stop' | 'force' | 'disable-force' | null>(
+    null,
+  );
   const [message, setMessage] = useState('');
   const estimateRequestId = useRef(0);
   const locationRef = useRef<{ latitude: number; longitude: number } | null>(null);
@@ -64,8 +74,25 @@ export default function ChargeScreen() {
   );
   const currentPercent = selectedVehicle?.currentBatteryPercent ?? 20;
   const minimumTarget = Math.min(100, Math.ceil(currentPercent + 1));
+  const deadlineReachable = useMemo(
+    () => canReachTargetBy(selectedVehicle, targetPercent, targetAt, now),
+    [now, selectedVehicle, targetAt, targetPercent],
+  );
+  const planUnavailable = Boolean(targetAt) && (!deadlineReachable || estimateFeasible === false);
+  const startDisabled =
+    !selectedVehicle ||
+    !targetAt ||
+    currentPercent >= 100 ||
+    estimating ||
+    !estimate ||
+    estimateFeasible !== true ||
+    !deadlineReachable;
 
   useEffect(() => setTargetPercent((value) => Math.max(minimumTarget, value)), [minimumTarget]);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!sessionToken || !selectedVehicleId) return;
@@ -98,7 +125,7 @@ export default function ChargeScreen() {
   }, [refresh]);
 
   async function start() {
-    if (!sessionToken || !selectedVehicle || !targetAt) return;
+    if (!sessionToken || !selectedVehicle || !targetAt || startDisabled) return;
     try {
       const location = await getChargingLocation();
       const created = await createChargingSession(sessionToken, {
@@ -109,9 +136,9 @@ export default function ChargeScreen() {
         longitude: location.longitude,
       });
       setSession(created);
-      setMessage('The five-minute carbon-aware plan is active.');
+      setMessage('');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to start charging simulation.');
+      setMessage(error instanceof Error ? error.message : 'Unable to start smart charging.');
     }
   }
 
@@ -127,6 +154,7 @@ export default function ChargeScreen() {
     if (!sessionToken || !selectedVehicle) return;
     const requestId = ++estimateRequestId.current;
     setEstimating(true);
+    setEstimateFeasible(null);
     try {
       const location = await getChargingLocation();
       const result = await estimateChargingSession(sessionToken, {
@@ -138,12 +166,21 @@ export default function ChargeScreen() {
       });
       if (requestId === estimateRequestId.current) {
         setEstimate(result);
+        setEstimateFeasible(true);
         setMessage('');
       }
     } catch (error) {
       if (requestId === estimateRequestId.current) {
         setEstimate(null);
-        setMessage(error instanceof Error ? error.message : 'Unable to calculate estimate.');
+        const infeasible = error instanceof ServerApiError && error.status === 422;
+        setEstimateFeasible(infeasible ? false : null);
+        setMessage(
+          infeasible
+            ? 'The charging target cannot be reached before the selected deadline.'
+            : error instanceof Error
+              ? error.message
+              : 'Unable to calculate estimate.',
+        );
       }
     } finally {
       if (requestId === estimateRequestId.current) setEstimating(false);
@@ -151,22 +188,63 @@ export default function ChargeScreen() {
   }
 
   async function stop() {
-    if (!sessionToken || !session) return;
+    if (!sessionToken || !session || stopping) return;
+    setStopping(true);
     try {
       await stopChargingSession(sessionToken, session.id);
       setSession(null);
+      setConfirmAction(null);
       await loadVehicles();
-      setMessage('Charging simulation stopped.');
+      setMessage('Charging stopped.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to stop charging.');
+    } finally {
+      setStopping(false);
+    }
+  }
+
+  async function forceTopUp() {
+    if (!sessionToken || !session || forcing || session.controlMode === 'force') return;
+    setForcing(true);
+    try {
+      const updated = await forceTopUpChargingSession(sessionToken, session.id);
+      setSession(updated);
+      setConfirmAction(null);
+      setMessage('Force top up is active.');
     } catch {
-      setMessage('Unable to stop charging simulation.');
+      setMessage('Unable to activate force top up.');
+    } finally {
+      setForcing(false);
+    }
+  }
+
+  async function disableForceTopUp() {
+    if (!sessionToken || !session || forcing || session.controlMode !== 'force') return;
+    setForcing(true);
+    try {
+      const updated = await disableForceTopUpChargingSession(sessionToken, session.id);
+      setSession(updated);
+      setConfirmAction(null);
+      setMessage('Smart charging optimization is active.');
+    } catch {
+      setMessage('Unable to disable force top up.');
+    } finally {
+      setForcing(false);
     }
   }
 
   const shownPercent = session?.currentBatteryPercent ?? currentPercent;
   const shownTarget = session?.targetBatteryPercent ?? targetPercent;
   const shownTargetAt = session ? new Date(session.targetAt) : targetAt;
-  const savings = session?.estimatedCarbonSavingsGco2 ?? estimate?.carbonSavingsGco2;
-  const status = session?.status === 'charging' ? 'CHARGING' : session ? 'SMART PAUSE' : 'READY';
+  const estimatedSavings = session?.estimatedCarbonSavingsGco2 ?? estimate?.carbonSavingsGco2;
+  const status =
+    session?.controlMode === 'force'
+      ? 'FORCE TOP UP'
+      : session?.status === 'charging'
+        ? 'CHARGING'
+        : session
+          ? 'OPTIMIZING'
+          : 'READY';
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -222,7 +300,13 @@ export default function ChargeScreen() {
               />
               <DashboardMetric
                 icon={<Leaf size={16} color={colors.success} />}
-                value={estimating ? '…' : savings === undefined ? '—' : formatCarbon(savings)}
+                value={
+                  estimating
+                    ? '- kg'
+                    : estimatedSavings === undefined
+                      ? '- kg'
+                      : formatCarbon(estimatedSavings)
+                }
                 label="EST. CO₂ SAVED"
                 success
               />
@@ -243,6 +327,7 @@ export default function ChargeScreen() {
                 onValueChange={(value) => {
                   setTargetPercent(value);
                   setEstimate(null);
+                  setEstimateFeasible(null);
                 }}
                 onSlidingComplete={(value) => {
                   if (targetAt) void calculateEstimate(value, targetAt);
@@ -301,6 +386,10 @@ export default function ChargeScreen() {
                 value={`${session.accumulatedBatteryEnergyKwh.toFixed(2)} kWh`}
               />
               <Row
+                label="Carbon saved so far"
+                value={formatCarbon(session.realizedCarbonSavingsGco2)}
+              />
+              <Row
                 label="Last control"
                 value={
                   session.lastControlledAt
@@ -316,19 +405,76 @@ export default function ChargeScreen() {
           {!!message && <Text style={styles.message}>{message}</Text>}
         </ScrollView>
         <View style={styles.bottom}>
-          <Pressable
-            disabled={!selectedVehicle || !targetAt || currentPercent >= 100}
-            onPress={() => void (session ? stop() : start())}
-            style={[
-              styles.action,
-              (!selectedVehicle || !targetAt || currentPercent >= 100) && styles.disabled,
-              session && styles.stop,
-            ]}
-          >
-            <Text style={[styles.actionText, session && styles.stopText]}>
-              {session ? 'Stop simulation' : 'Start smart charging'}
-            </Text>
-          </Pressable>
+          {session ? (
+            <View style={styles.activeActions}>
+              <Pressable
+                disabled={stopping || forcing}
+                onPress={() => setConfirmAction('stop')}
+                style={[
+                  styles.action,
+                  styles.activeAction,
+                  styles.stop,
+                  (stopping || forcing) && styles.disabled,
+                ]}
+              >
+                <Text style={[styles.actionText, styles.stopText]}>
+                  {stopping ? 'Stopping...' : 'Stop charging'}
+                </Text>
+              </Pressable>
+              <Pressable
+                disabled={stopping || forcing}
+                onPress={() =>
+                  setConfirmAction(session.controlMode === 'force' ? 'disable-force' : 'force')
+                }
+                style={[
+                  styles.action,
+                  styles.activeAction,
+                  styles.forceAction,
+                  session.controlMode === 'force' && styles.disableForceAction,
+                  (stopping || forcing) && styles.disabled,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.forceActionText,
+                    session.controlMode === 'force' && styles.disableForceActionText,
+                  ]}
+                >
+                  {forcing
+                    ? 'Activating...'
+                    : session.controlMode === 'force'
+                      ? 'Disable top up'
+                      : 'Force top up'}
+                </Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.startActionGroup}>
+              <Pressable
+                disabled={startDisabled}
+                onPress={() => void start()}
+                style={[
+                  styles.action,
+                  startDisabled && styles.disabled,
+                  planUnavailable && styles.unavailableAction,
+                ]}
+              >
+                <Text style={[styles.actionText, planUnavailable && styles.unavailableActionText]}>
+                  {estimating
+                    ? 'Checking deadline...'
+                    : planUnavailable
+                      ? 'Charging plan unavailable'
+                      : 'Start charging'}
+                </Text>
+              </Pressable>
+              {planUnavailable && (
+                <Text style={styles.unavailableNotice}>
+                  This charging plan cannot be started. Choose a later completion time or lower the
+                  charge target.
+                </Text>
+              )}
+            </View>
+          )}
         </View>
       </View>
       <ClockRingModal
@@ -339,8 +485,20 @@ export default function ChargeScreen() {
           setTargetAt(value);
           setClockSeed(value);
           setEstimate(null);
+          setEstimateFeasible(null);
           setShowClock(false);
           void calculateEstimate(targetPercent, value);
+        }}
+      />
+      <ActionConfirmationModal
+        action={confirmAction}
+        busy={stopping || forcing}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={() => {
+          const action = confirmAction;
+          if (action === 'stop') void stop();
+          if (action === 'force') void forceTopUp();
+          if (action === 'disable-force') void disableForceTopUp();
         }}
       />
     </SafeAreaView>
@@ -364,6 +522,88 @@ function DashboardMetric({
       <Text style={[styles.metricValue, success && styles.metricValueSuccess]}>{value}</Text>
       <Text style={styles.metricLabel}>{label}</Text>
     </View>
+  );
+}
+
+function ActionConfirmationModal({
+  action,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  action: 'stop' | 'force' | 'disable-force' | null;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const force = action === 'force';
+  const disableForce = action === 'disable-force';
+  return (
+    <Modal visible={action !== null} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.confirmModal}>
+          <View style={[styles.confirmIcon, force && styles.confirmIconForce]}>
+            <Zap size={27} color={force ? colors.background : colors.text} strokeWidth={2.1} />
+          </View>
+          <Text style={styles.confirmTitle}>
+            {force
+              ? 'Activate force top up?'
+              : disableForce
+                ? 'Disable force top up?'
+                : 'Stop charging?'}
+          </Text>
+          <Text style={styles.confirmDescription}>
+            {force
+              ? 'Charging will start immediately at maximum power and bypass carbon optimization.'
+              : disableForce
+                ? 'Charging will return to carbon-aware optimization for the remaining target.'
+                : 'Your active charging plan will end and the progress so far will be saved.'}
+          </Text>
+          <View style={styles.confirmActions}>
+            <Pressable disabled={busy} onPress={onCancel} style={styles.confirmCancelButton}>
+              <Text style={styles.confirmCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                force
+                  ? 'Confirm force top up'
+                  : disableForce
+                    ? 'Confirm disable force top up'
+                    : 'Confirm stop charging'
+              }
+              disabled={busy}
+              onPress={onConfirm}
+              hitSlop={8}
+              style={[
+                styles.confirmProceedButton,
+                action === 'stop' && styles.confirmProceedStop,
+                force && styles.confirmProceedForce,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.confirmProceedText,
+                  (force || action === 'stop') && styles.confirmProceedForceText,
+                ]}
+              >
+                {busy
+                  ? force
+                    ? 'Activating...'
+                    : disableForce
+                      ? 'Disabling...'
+                      : 'Stopping...'
+                  : force
+                    ? 'Force top up'
+                    : disableForce
+                      ? 'Disable top up'
+                      : 'Stop charging'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -566,8 +806,22 @@ function defaultClockValue() {
   date.setMinutes(Math.ceil(date.getMinutes() / 15) * 15, 0, 0);
   return date;
 }
+function canReachTargetBy(
+  vehicle: ServerVehicle | undefined,
+  targetPercent: number,
+  targetAt: Date | null,
+  now: number,
+) {
+  if (!vehicle || !targetAt) return false;
+  const batteryEnergyNeededKwh =
+    (vehicle.batteryCapacityKwh * Math.max(0, targetPercent - vehicle.currentBatteryPercent)) / 100;
+  const batteryChargingPowerKw = vehicle.acChargingPowerKw * vehicle.chargingEfficiency;
+  if (batteryChargingPowerKw <= 0) return false;
+  const chargingTimeMs = (batteryEnergyNeededKwh / batteryChargingPowerKw) * 60 * 60 * 1000;
+  return targetAt.getTime() - now >= chargingTimeMs;
+}
 function formatCarbon(value: number) {
-  return value >= 1000 ? `${(value / 1000).toFixed(2)} kg` : `${Math.round(value)} g`;
+  return Math.abs(value) >= 1000 ? `${(value / 1000).toFixed(2)} kg` : `${Math.round(value)} g`;
 }
 function Row({ label, value }: { label: string; value: string }) {
   return (
@@ -745,6 +999,9 @@ const styles = StyleSheet.create({
   },
   message: { color: colors.success, fontSize: 13, marginTop: 10 },
   bottom: { padding: 20 },
+  startActionGroup: { gap: 9 },
+  activeActions: { flexDirection: 'row', gap: 10 },
+  activeAction: { flex: 1 },
   action: {
     height: 60,
     borderRadius: 18,
@@ -753,8 +1010,29 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   actionText: { color: colors.background, fontSize: 16, fontWeight: '800' },
+  unavailableAction: {
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  unavailableActionText: { color: colors.muted },
+  unavailableNotice: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
+    paddingHorizontal: 12,
+  },
   stop: { backgroundColor: colors.surfaceElevated, borderWidth: 1, borderColor: colors.border },
   stopText: { color: colors.text },
+  forceAction: { backgroundColor: colors.success },
+  forceActionText: { color: colors.background, fontSize: 14, fontWeight: '800' },
+  disableForceAction: {
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.success,
+  },
+  disableForceActionText: { color: colors.success },
   disabled: { opacity: 0.45 },
   modalBackdrop: {
     flex: 1,
@@ -763,6 +1041,56 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 18,
   },
+  confirmModal: {
+    width: '100%',
+    maxWidth: 370,
+    alignItems: 'center',
+    padding: 25,
+    borderRadius: 27,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,.12)',
+  },
+  confirmIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceElevated,
+  },
+  confirmIconForce: { backgroundColor: colors.success },
+  confirmTitle: { color: colors.text, fontSize: 20, fontWeight: '800', marginTop: 17 },
+  confirmDescription: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  confirmActions: { flexDirection: 'row', gap: 10, width: '100%', marginTop: 22 },
+  confirmCancelButton: {
+    flex: 1,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 15,
+    backgroundColor: colors.surfaceElevated,
+  },
+  confirmCancelText: { color: colors.text, fontWeight: '700' },
+  confirmProceedButton: {
+    flex: 1,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  confirmProceedStop: { backgroundColor: '#E86F61', borderColor: '#E86F61' },
+  confirmProceedForce: { backgroundColor: colors.success, borderColor: colors.success },
+  confirmProceedText: { color: colors.text, fontSize: 13, fontWeight: '800' },
+  confirmProceedForceText: { color: colors.background },
   clockModal: {
     width: '100%',
     maxWidth: 390,

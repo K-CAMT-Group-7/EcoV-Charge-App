@@ -1,0 +1,14 @@
+ALTER TABLE charging_sessions
+    ADD COLUMN IF NOT EXISTS accumulated_baseline_battery_energy_kwh DOUBLE PRECISION NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS accumulated_baseline_grid_energy_kwh DOUBLE PRECISION NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS accumulated_baseline_emissions_gco2 DOUBLE PRECISION NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS realized_carbon_savings_gco2 DOUBLE PRECISION NOT NULL DEFAULT 0;
+
+ALTER TABLE charging_session_ticks
+    ADD COLUMN IF NOT EXISTS baseline_battery_energy_kwh DOUBLE PRECISION NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS baseline_grid_energy_kwh DOUBLE PRECISION NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS baseline_emissions_gco2 DOUBLE PRECISION NOT NULL DEFAULT 0;
+
+ALTER TABLE charging_records
+    ADD COLUMN IF NOT EXISTS baseline_emissions_gco2 DOUBLE PRECISION NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS carbon_savings_gco2 DOUBLE PRECISION NOT NULL DEFAULT 0;

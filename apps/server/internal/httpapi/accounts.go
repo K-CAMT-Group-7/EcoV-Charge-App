@@ -309,6 +309,28 @@ func (api *API) stopChargingSession(c fiber.Ctx) error {
 	return c.JSON(session)
 }
 
+func (api *API) forceTopUpChargingSession(c fiber.Ctx) error {
+	if api.chargingSessions == nil {
+		return fiber.NewError(fiber.StatusServiceUnavailable, "charging service is not configured")
+	}
+	session, err := api.chargingSessions.ForceTopUpChargingSession(c.Context(), currentUser(c).ID, c.Params("sessionId"))
+	if err != nil {
+		return resourceError(err)
+	}
+	return c.JSON(session)
+}
+
+func (api *API) disableForceTopUpChargingSession(c fiber.Ctx) error {
+	if api.chargingSessions == nil {
+		return fiber.NewError(fiber.StatusServiceUnavailable, "charging service is not configured")
+	}
+	session, err := api.chargingSessions.DisableForceTopUpChargingSession(c.Context(), currentUser(c).ID, c.Params("sessionId"))
+	if err != nil {
+		return resourceError(err)
+	}
+	return c.JSON(session)
+}
+
 func currentUser(c fiber.Ctx) account.User {
 	user, _ := c.Locals(userLocalKey).(account.User)
 	return user

@@ -27,6 +27,7 @@ export interface ServerVehicle {
   dcFastChargingPowerKw: number;
   chargingEfficiency: number;
   currentBatteryPercent: number;
+  chargingStatus: 'connected' | 'charging' | 'completed';
   connectorTypes: string[];
   createdAt: string;
   updatedAt: string;
@@ -34,7 +35,7 @@ export interface ServerVehicle {
 
 export type CreateServerVehicle = Omit<
   ServerVehicle,
-  'id' | 'userId' | 'currentBatteryPercent' | 'createdAt' | 'updatedAt'
+  'id' | 'userId' | 'currentBatteryPercent' | 'chargingStatus' | 'createdAt' | 'updatedAt'
 >;
 
 export interface ServerChargingRecord {
@@ -49,6 +50,8 @@ export interface ServerChargingRecord {
   gridEnergyKwh: number | null;
   averageCarbonIntensity: number | null;
   emissionsGco2: number | null;
+  baselineEmissionsGco2: number;
+  carbonSavingsGco2: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -58,6 +61,7 @@ export interface ServerChargingSession {
   userId: string;
   vehicleId: string;
   status: 'scheduled' | 'charging' | 'completed' | 'stopped' | 'failed';
+  controlMode: 'smart' | 'force';
   startedAt: string;
   targetAt: string;
   initialBatteryPercent: number;
@@ -68,6 +72,10 @@ export interface ServerChargingSession {
   accumulatedBatteryEnergyKwh: number;
   accumulatedGridEnergyKwh: number;
   accumulatedEmissionsGco2: number;
+  accumulatedBaselineBatteryEnergyKwh: number;
+  accumulatedBaselineGridEnergyKwh: number;
+  accumulatedBaselineEmissionsGco2: number;
+  realizedCarbonSavingsGco2: number;
   estimatedOptimizedEmissionsGco2: number;
   estimatedImmediateEmissionsGco2: number;
   estimatedCarbonSavingsGco2: number;
@@ -98,12 +106,16 @@ export type CreateServerChargingRecord = Omit<
   | 'gridEnergyKwh'
   | 'averageCarbonIntensity'
   | 'emissionsGco2'
+  | 'baselineEmissionsGco2'
+  | 'carbonSavingsGco2'
   | 'createdAt'
   | 'updatedAt'
 > & {
   gridEnergyKwh?: number;
   averageCarbonIntensity?: number;
   emissionsGco2?: number;
+  baselineEmissionsGco2?: number;
+  carbonSavingsGco2?: number;
 };
 
 export class ServerApiError extends Error {
@@ -211,6 +223,22 @@ export async function getActiveChargingSession(sessionToken: string, vehicleId: 
 export function stopChargingSession(sessionToken: string, sessionId: string) {
   return authenticatedRequest<ServerChargingSession>(
     `/v1/charging-sessions/${encodeURIComponent(sessionId)}/stop`,
+    sessionToken,
+    { method: 'POST' },
+  );
+}
+
+export function forceTopUpChargingSession(sessionToken: string, sessionId: string) {
+  return authenticatedRequest<ServerChargingSession>(
+    `/v1/charging-sessions/${encodeURIComponent(sessionId)}/force-top-up`,
+    sessionToken,
+    { method: 'POST' },
+  );
+}
+
+export function disableForceTopUpChargingSession(sessionToken: string, sessionId: string) {
+  return authenticatedRequest<ServerChargingSession>(
+    `/v1/charging-sessions/${encodeURIComponent(sessionId)}/disable-force-top-up`,
     sessionToken,
     { method: 'POST' },
   );

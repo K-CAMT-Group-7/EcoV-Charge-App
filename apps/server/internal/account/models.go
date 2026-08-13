@@ -37,6 +37,7 @@ type Vehicle struct {
 	DCFastChargingPowerKW float64   `json:"dcFastChargingPowerKw"`
 	ChargingEfficiency    float64   `json:"chargingEfficiency"`
 	CurrentBatteryPercent float64   `json:"currentBatteryPercent"`
+	ChargingStatus        string    `json:"chargingStatus"`
 	ConnectorTypes        []string  `json:"connectorTypes"`
 	CreatedAt             time.Time `json:"createdAt"`
 	UpdatedAt             time.Time `json:"updatedAt"`
@@ -54,32 +55,39 @@ type ChargingRecord struct {
 	GridEnergyKWh          *float64  `json:"gridEnergyKwh"`
 	AverageCarbonIntensity *float64  `json:"averageCarbonIntensity"`
 	EmissionsGCO2          *float64  `json:"emissionsGco2"`
+	BaselineEmissionsGCO2  float64   `json:"baselineEmissionsGco2"`
+	CarbonSavingsGCO2      float64   `json:"carbonSavingsGco2"`
 	CreatedAt              time.Time `json:"createdAt"`
 	UpdatedAt              time.Time `json:"updatedAt"`
 }
 
 type ChargingSession struct {
-	ID                              string     `json:"id"`
-	UserID                          string     `json:"userId"`
-	VehicleID                       string     `json:"vehicleId"`
-	Status                          string     `json:"status"`
-	StartedAt                       time.Time  `json:"startedAt"`
-	TargetAt                        time.Time  `json:"targetAt"`
-	InitialBatteryPercent           float64    `json:"initialBatteryPercent"`
-	CurrentBatteryPercent           float64    `json:"currentBatteryPercent"`
-	TargetBatteryPercent            float64    `json:"targetBatteryPercent"`
-	Latitude                        float64    `json:"latitude"`
-	Longitude                       float64    `json:"longitude"`
-	AccumulatedBatteryEnergyKWh     float64    `json:"accumulatedBatteryEnergyKwh"`
-	AccumulatedGridEnergyKWh        float64    `json:"accumulatedGridEnergyKwh"`
-	AccumulatedEmissionsGCO2        float64    `json:"accumulatedEmissionsGco2"`
-	EstimatedOptimizedEmissionsGCO2 float64    `json:"estimatedOptimizedEmissionsGco2"`
-	EstimatedImmediateEmissionsGCO2 float64    `json:"estimatedImmediateEmissionsGco2"`
-	EstimatedCarbonSavingsGCO2      float64    `json:"estimatedCarbonSavingsGco2"`
-	LastControlledAt                *time.Time `json:"lastControlledAt"`
-	CompletedAt                     *time.Time `json:"completedAt"`
-	CreatedAt                       time.Time  `json:"createdAt"`
-	UpdatedAt                       time.Time  `json:"updatedAt"`
+	ID                                  string     `json:"id"`
+	UserID                              string     `json:"userId"`
+	VehicleID                           string     `json:"vehicleId"`
+	Status                              string     `json:"status"`
+	ControlMode                         string     `json:"controlMode"`
+	StartedAt                           time.Time  `json:"startedAt"`
+	TargetAt                            time.Time  `json:"targetAt"`
+	InitialBatteryPercent               float64    `json:"initialBatteryPercent"`
+	CurrentBatteryPercent               float64    `json:"currentBatteryPercent"`
+	TargetBatteryPercent                float64    `json:"targetBatteryPercent"`
+	Latitude                            float64    `json:"latitude"`
+	Longitude                           float64    `json:"longitude"`
+	AccumulatedBatteryEnergyKWh         float64    `json:"accumulatedBatteryEnergyKwh"`
+	AccumulatedGridEnergyKWh            float64    `json:"accumulatedGridEnergyKwh"`
+	AccumulatedEmissionsGCO2            float64    `json:"accumulatedEmissionsGco2"`
+	AccumulatedBaselineBatteryEnergyKWh float64    `json:"accumulatedBaselineBatteryEnergyKwh"`
+	AccumulatedBaselineGridEnergyKWh    float64    `json:"accumulatedBaselineGridEnergyKwh"`
+	AccumulatedBaselineEmissionsGCO2    float64    `json:"accumulatedBaselineEmissionsGco2"`
+	RealizedCarbonSavingsGCO2           float64    `json:"realizedCarbonSavingsGco2"`
+	EstimatedOptimizedEmissionsGCO2     float64    `json:"estimatedOptimizedEmissionsGco2"`
+	EstimatedImmediateEmissionsGCO2     float64    `json:"estimatedImmediateEmissionsGco2"`
+	EstimatedCarbonSavingsGCO2          float64    `json:"estimatedCarbonSavingsGco2"`
+	LastControlledAt                    *time.Time `json:"lastControlledAt"`
+	CompletedAt                         *time.Time `json:"completedAt"`
+	CreatedAt                           time.Time  `json:"createdAt"`
+	UpdatedAt                           time.Time  `json:"updatedAt"`
 }
 
 type ChargingSessionTick struct {
@@ -89,6 +97,9 @@ type ChargingSessionTick struct {
 	GridEnergyKWh                   float64   `json:"gridEnergyKwh"`
 	CarbonIntensity                 *float64  `json:"carbonIntensity"`
 	EmissionsGCO2                   float64   `json:"emissionsGco2"`
+	BaselineBatteryEnergyKWh        float64   `json:"baselineBatteryEnergyKwh"`
+	BaselineGridEnergyKWh           float64   `json:"baselineGridEnergyKwh"`
+	BaselineEmissionsGCO2           float64   `json:"baselineEmissionsGco2"`
 	BatteryPercentGain              float64   `json:"-"`
 	EstimatedOptimizedEmissionsGCO2 float64   `json:"-"`
 	EstimatedImmediateEmissionsGCO2 float64   `json:"-"`

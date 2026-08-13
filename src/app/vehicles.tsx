@@ -4,7 +4,7 @@ import Check from 'lucide-react-native/icons/check';
 import ChevronLeft from 'lucide-react-native/icons/chevron-left';
 import Plus from 'lucide-react-native/icons/plus';
 import Truck from 'lucide-react-native/icons/truck';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -42,14 +42,7 @@ export default function VehiclesScreen() {
   const [selected, setSelected] = useState<VehicleCatalogItem>(teslaVehicleCatalog[0]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const refreshVehicles = useCallback(async () => {
-    if (!sessionToken) return;
-    const result = await listVehicles(sessionToken);
-    setVehicles(result);
-  }, [sessionToken]);
 
   useEffect(() => {
     let active = true;
@@ -74,11 +67,9 @@ export default function VehiclesScreen() {
     if (!sessionToken || saving) return;
     setSaving(true);
     setError(null);
-    setMessage(null);
     try {
-      await createVehicle(sessionToken, toCreateVehicle(selected));
-      await refreshVehicles();
-      setMessage(`${selected.displayName} has been added to your account.`);
+      const created = await createVehicle(sessionToken, toCreateVehicle(selected));
+      router.replace({ pathname: '/', params: { vehicleId: created.id } });
     } catch (cause) {
       setError(getErrorMessage(cause));
     } finally {
@@ -120,7 +111,6 @@ export default function VehiclesScreen() {
                   accessibilityState={{ checked: isSelected }}
                   onPress={() => {
                     setSelected(item);
-                    setMessage(null);
                   }}
                   style={({ pressed }) => [
                     styles.catalogCard,
@@ -189,7 +179,6 @@ export default function VehiclesScreen() {
               {saving ? 'Adding vehicle…' : `Add ${selected.model}`}
             </Text>
           </Pressable>
-          {message && <Text style={styles.successMessage}>{message}</Text>}
           {error && <Text style={styles.errorMessage}>{error}</Text>}
 
           <View style={styles.sectionHeading}>

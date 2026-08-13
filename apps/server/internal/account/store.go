@@ -30,6 +30,8 @@ type ChargingSessionStore interface {
 	CreateChargingSession(ctx context.Context, userID string, session ChargingSession) (ChargingSession, error)
 	GetActiveChargingSession(ctx context.Context, userID, vehicleID string) (ChargingSession, error)
 	StopChargingSession(ctx context.Context, userID, sessionID string, stoppedAt time.Time) (ChargingSession, error)
+	ForceTopUpChargingSession(ctx context.Context, userID, sessionID string) (ChargingSession, error)
+	DisableForceTopUpChargingSession(ctx context.Context, userID, sessionID string) (ChargingSession, error)
 	ListRunnableChargingSessions(ctx context.Context, now time.Time) ([]ChargingSession, error)
 	ApplyChargingSessionTick(ctx context.Context, sessionID string, tick ChargingSessionTick, completed bool) (ChargingSession, error)
 }

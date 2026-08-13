@@ -155,7 +155,7 @@ func (store *Store) CreateVehicle(
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		RETURNING id, user_id, display_name, manufacturer, model, model_year,
 		          battery_capacity_kwh, ac_charging_power_kw, dc_fast_charging_power_kw,
-		          charging_efficiency, current_battery_percent, connector_types, created_at, updated_at
+		          charging_efficiency, current_battery_percent, charging_status, connector_types, created_at, updated_at
 	`, userID, vehicle.DisplayName, vehicle.Manufacturer, vehicle.Model, vehicle.ModelYear,
 		vehicle.BatteryCapacityKWh, vehicle.ACChargingPowerKW, vehicle.DCFastChargingPowerKW,
 		vehicle.ChargingEfficiency, vehicle.ConnectorTypes).Scan(vehicleFields(&vehicle)...)
@@ -194,7 +194,7 @@ func (store *Store) UpdateVehicle(
 		WHERE user_id = $1 AND id = $2
 		RETURNING id, user_id, display_name, manufacturer, model, model_year,
 		          battery_capacity_kwh, ac_charging_power_kw, dc_fast_charging_power_kw,
-		          charging_efficiency, current_battery_percent, connector_types, created_at, updated_at
+		          charging_efficiency, current_battery_percent, charging_status, connector_types, created_at, updated_at
 	`, userID, vehicleID, vehicle.DisplayName, vehicle.Manufacturer, vehicle.Model,
 		vehicle.ModelYear, vehicle.BatteryCapacityKWh, vehicle.ACChargingPowerKW,
 		vehicle.DCFastChargingPowerKW, vehicle.ChargingEfficiency, vehicle.ConnectorTypes).
@@ -229,17 +229,20 @@ func (store *Store) CreateChargingRecord(
 		INSERT INTO charging_records (
 			user_id, vehicle_id, started_at, ended_at, start_battery_percent,
 			end_battery_percent, battery_energy_kwh, grid_energy_kwh,
-			average_carbon_intensity, emissions_gco2
+			average_carbon_intensity, emissions_gco2, baseline_emissions_gco2,
+			carbon_savings_gco2
 		)
-		SELECT $1, v.id, $3,$4,$5,$6,$7,$8,$9,$10
+		SELECT $1, v.id, $3,$4,$5,$6,$7,$8,$9,$10,$11,$12
 		FROM vehicles v WHERE v.id = $2 AND v.user_id = $1
 		RETURNING id, user_id, vehicle_id, started_at, ended_at,
 		          start_battery_percent, end_battery_percent, battery_energy_kwh,
 		          grid_energy_kwh, average_carbon_intensity, emissions_gco2,
+		          baseline_emissions_gco2, carbon_savings_gco2,
 		          created_at, updated_at
 	`, userID, record.VehicleID, record.StartedAt, record.EndedAt,
 		record.StartBatteryPercent, record.EndBatteryPercent, record.BatteryEnergyKWh,
-		record.GridEnergyKWh, record.AverageCarbonIntensity, record.EmissionsGCO2).
+		record.GridEnergyKWh, record.AverageCarbonIntensity, record.EmissionsGCO2,
+		record.BaselineEmissionsGCO2, record.CarbonSavingsGCO2).
 		Scan(chargingRecordFields(&record)...)
 	return record, mapNotFound(err)
 }
@@ -302,6 +305,9 @@ func (store *Store) CreateChargingSession(ctx context.Context, userID string, se
 		INSERT INTO charging_sessions (user_id, vehicle_id, status, started_at, target_at, initial_battery_percent, current_battery_percent, target_battery_percent, latitude, longitude, estimated_optimized_emissions_gco2, estimated_immediate_emissions_gco2, estimated_carbon_savings_gco2)
 		SELECT $1, id, 'scheduled', $3, $4, current_battery_percent, current_battery_percent, $5, $6, $7, $8, $9, $10 FROM vehicles WHERE id = $2 AND user_id = $1
 		RETURNING `+chargingSessionColumns, userID, session.VehicleID, session.StartedAt, session.TargetAt, session.TargetBatteryPercent, session.Latitude, session.Longitude, session.EstimatedOptimizedEmissionsGCO2, session.EstimatedImmediateEmissionsGCO2, session.EstimatedCarbonSavingsGCO2).Scan(chargingSessionFields(&session)...)
+	if err == nil {
+		_, err = store.pool.Exec(ctx, `UPDATE vehicles SET charging_status = 'charging', updated_at = now() WHERE id = $1`, session.VehicleID)
+	}
 	return session, mapNotFound(err)
 }
 
@@ -312,8 +318,80 @@ func (store *Store) GetActiveChargingSession(ctx context.Context, userID, vehicl
 }
 
 func (store *Store) StopChargingSession(ctx context.Context, userID, sessionID string, stoppedAt time.Time) (account.ChargingSession, error) {
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		return account.ChargingSession{}, err
+	}
+	defer tx.Rollback(ctx)
+
 	var session account.ChargingSession
-	err := store.pool.QueryRow(ctx, `UPDATE charging_sessions SET status = 'stopped', completed_at = $3, updated_at = now() WHERE id = $1 AND user_id = $2 AND status IN ('scheduled', 'charging') RETURNING `+chargingSessionColumns, sessionID, userID, stoppedAt).Scan(chargingSessionFields(&session)...)
+	err = tx.QueryRow(ctx, `UPDATE charging_sessions SET status = 'stopped', completed_at = $3, updated_at = now() WHERE id = $1 AND user_id = $2 AND status IN ('scheduled', 'charging') RETURNING `+chargingSessionColumns, sessionID, userID, stoppedAt).Scan(chargingSessionFields(&session)...)
+	if err != nil {
+		return account.ChargingSession{}, mapNotFound(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE vehicles SET charging_status = 'connected', updated_at = now() WHERE id = $1`, session.VehicleID); err != nil {
+		return account.ChargingSession{}, err
+	}
+	if session.AccumulatedBatteryEnergyKWh > 0 {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO charging_records (
+				user_id, vehicle_id, started_at, ended_at, start_battery_percent,
+				end_battery_percent, battery_energy_kwh, grid_energy_kwh,
+				average_carbon_intensity, emissions_gco2, baseline_emissions_gco2,
+				carbon_savings_gco2
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,
+				CASE WHEN $8::double precision > 0
+				     THEN $9::double precision / $8::double precision
+				     ELSE NULL::double precision END,
+				$9::double precision,$10::double precision,$11::double precision)
+		`, session.UserID, session.VehicleID, session.StartedAt, stoppedAt,
+			session.InitialBatteryPercent, session.CurrentBatteryPercent,
+			session.AccumulatedBatteryEnergyKWh, session.AccumulatedGridEnergyKWh,
+			session.AccumulatedEmissionsGCO2, session.AccumulatedBaselineEmissionsGCO2,
+			session.RealizedCarbonSavingsGCO2)
+		if err != nil {
+			return account.ChargingSession{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return account.ChargingSession{}, err
+	}
+	return session, nil
+}
+
+func (store *Store) ForceTopUpChargingSession(ctx context.Context, userID, sessionID string) (account.ChargingSession, error) {
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		return account.ChargingSession{}, err
+	}
+	defer tx.Rollback(ctx)
+	var session account.ChargingSession
+	err = tx.QueryRow(ctx, `
+		UPDATE charging_sessions
+		SET control_mode = 'force', status = 'charging',
+		    estimated_optimized_emissions_gco2 = estimated_immediate_emissions_gco2,
+		    estimated_carbon_savings_gco2 = 0, updated_at = now()
+		WHERE id = $1 AND user_id = $2 AND status IN ('scheduled', 'charging')
+		RETURNING `+chargingSessionColumns, sessionID, userID).Scan(chargingSessionFields(&session)...)
+	if err != nil {
+		return account.ChargingSession{}, mapNotFound(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE vehicles SET charging_status = 'charging', updated_at = now() WHERE id = $1`, session.VehicleID); err != nil {
+		return account.ChargingSession{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return account.ChargingSession{}, err
+	}
+	return session, nil
+}
+
+func (store *Store) DisableForceTopUpChargingSession(ctx context.Context, userID, sessionID string) (account.ChargingSession, error) {
+	var session account.ChargingSession
+	err := store.pool.QueryRow(ctx, `
+		UPDATE charging_sessions
+		SET control_mode = 'smart', status = 'scheduled', updated_at = now()
+		WHERE id = $1 AND user_id = $2 AND status IN ('scheduled', 'charging')
+		RETURNING `+chargingSessionColumns, sessionID, userID).Scan(chargingSessionFields(&session)...)
 	return session, mapNotFound(err)
 }
 
@@ -348,7 +426,7 @@ func (store *Store) ApplyChargingSessionTick(ctx context.Context, sessionID stri
 	if session.Status != "scheduled" && session.Status != "charging" {
 		return session, nil
 	}
-	result, err := tx.Exec(ctx, `INSERT INTO charging_session_ticks (session_id, controlled_at, charging_power_kw, battery_energy_kwh, grid_energy_kwh, carbon_intensity, emissions_gco2) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (session_id, controlled_at) DO NOTHING`, sessionID, tick.ControlledAt, tick.ChargingPowerKW, tick.BatteryEnergyKWh, tick.GridEnergyKWh, tick.CarbonIntensity, tick.EmissionsGCO2)
+	result, err := tx.Exec(ctx, `INSERT INTO charging_session_ticks (session_id, controlled_at, charging_power_kw, battery_energy_kwh, grid_energy_kwh, carbon_intensity, emissions_gco2, baseline_battery_energy_kwh, baseline_grid_energy_kwh, baseline_emissions_gco2) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (session_id, controlled_at) DO NOTHING`, sessionID, tick.ControlledAt, tick.ChargingPowerKW, tick.BatteryEnergyKWh, tick.GridEnergyKWh, tick.CarbonIntensity, tick.EmissionsGCO2, tick.BaselineBatteryEnergyKWh, tick.BaselineGridEnergyKWh, tick.BaselineEmissionsGCO2)
 	if err != nil {
 		return account.ChargingSession{}, err
 	}
@@ -365,15 +443,19 @@ func (store *Store) ApplyChargingSessionTick(ctx context.Context, sessionID stri
 	if completed {
 		status = "completed"
 	}
-	err = tx.QueryRow(ctx, `UPDATE charging_sessions SET status = $2, current_battery_percent = LEAST(100, current_battery_percent + $3), accumulated_battery_energy_kwh = accumulated_battery_energy_kwh + $4, accumulated_grid_energy_kwh = accumulated_grid_energy_kwh + $5, accumulated_emissions_gco2 = accumulated_emissions_gco2 + $6, last_controlled_at = $7, completed_at = CASE WHEN $8 THEN $7 ELSE completed_at END, estimated_optimized_emissions_gco2 = $9, estimated_immediate_emissions_gco2 = $10, estimated_carbon_savings_gco2 = $11, updated_at = now() WHERE id = $1 RETURNING `+chargingSessionColumns, sessionID, status, tick.BatteryPercentGain, tick.BatteryEnergyKWh, tick.GridEnergyKWh, tick.EmissionsGCO2, tick.ControlledAt, completed, tick.EstimatedOptimizedEmissionsGCO2, tick.EstimatedImmediateEmissionsGCO2, tick.EstimatedCarbonSavingsGCO2).Scan(chargingSessionFields(&session)...)
+	err = tx.QueryRow(ctx, `UPDATE charging_sessions SET status = $2, current_battery_percent = LEAST(100, current_battery_percent + $3), accumulated_battery_energy_kwh = accumulated_battery_energy_kwh + $4, accumulated_grid_energy_kwh = accumulated_grid_energy_kwh + $5, accumulated_emissions_gco2 = accumulated_emissions_gco2 + $6, last_controlled_at = $7, completed_at = CASE WHEN $8 THEN $7 ELSE completed_at END, estimated_optimized_emissions_gco2 = $9, estimated_immediate_emissions_gco2 = $10, estimated_carbon_savings_gco2 = $11, accumulated_baseline_battery_energy_kwh = accumulated_baseline_battery_energy_kwh + $12, accumulated_baseline_grid_energy_kwh = accumulated_baseline_grid_energy_kwh + $13, accumulated_baseline_emissions_gco2 = accumulated_baseline_emissions_gco2 + $14, realized_carbon_savings_gco2 = realized_carbon_savings_gco2 + $14 - $6, updated_at = now() WHERE id = $1 RETURNING `+chargingSessionColumns, sessionID, status, tick.BatteryPercentGain, tick.BatteryEnergyKWh, tick.GridEnergyKWh, tick.EmissionsGCO2, tick.ControlledAt, completed, tick.EstimatedOptimizedEmissionsGCO2, tick.EstimatedImmediateEmissionsGCO2, tick.EstimatedCarbonSavingsGCO2, tick.BaselineBatteryEnergyKWh, tick.BaselineGridEnergyKWh, tick.BaselineEmissionsGCO2).Scan(chargingSessionFields(&session)...)
 	if err != nil {
 		return account.ChargingSession{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE vehicles SET current_battery_percent = $2, updated_at = now() WHERE id = $1`, session.VehicleID, session.CurrentBatteryPercent); err != nil {
+	vehicleStatus := "charging"
+	if completed {
+		vehicleStatus = "completed"
+	}
+	if _, err := tx.Exec(ctx, `UPDATE vehicles SET current_battery_percent = $2, charging_status = $3, updated_at = now() WHERE id = $1`, session.VehicleID, session.CurrentBatteryPercent, vehicleStatus); err != nil {
 		return account.ChargingSession{}, err
 	}
 	if completed && session.AccumulatedBatteryEnergyKWh > 0 {
-		_, err = tx.Exec(ctx, `INSERT INTO charging_records (user_id, vehicle_id, started_at, ended_at, start_battery_percent, end_battery_percent, battery_energy_kwh, grid_energy_kwh, average_carbon_intensity, emissions_gco2) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $8 > 0 THEN $9 / $8 ELSE NULL END,$9)`, session.UserID, session.VehicleID, session.StartedAt, tick.ControlledAt, session.InitialBatteryPercent, session.CurrentBatteryPercent, session.AccumulatedBatteryEnergyKWh, session.AccumulatedGridEnergyKWh, session.AccumulatedEmissionsGCO2)
+		_, err = tx.Exec(ctx, `INSERT INTO charging_records (user_id, vehicle_id, started_at, ended_at, start_battery_percent, end_battery_percent, battery_energy_kwh, grid_energy_kwh, average_carbon_intensity, emissions_gco2, baseline_emissions_gco2, carbon_savings_gco2) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $8::double precision > 0 THEN $9::double precision / $8::double precision ELSE NULL::double precision END,$9::double precision,$10::double precision,$11::double precision)`, session.UserID, session.VehicleID, session.StartedAt, tick.ControlledAt, session.InitialBatteryPercent, session.CurrentBatteryPercent, session.AccumulatedBatteryEnergyKWh, session.AccumulatedGridEnergyKWh, session.AccumulatedEmissionsGCO2, session.AccumulatedBaselineEmissionsGCO2, session.RealizedCarbonSavingsGCO2)
 		if err != nil {
 			return account.ChargingSession{}, err
 		}
@@ -387,19 +469,22 @@ func (store *Store) ApplyChargingSessionTick(ctx context.Context, sessionID stri
 const vehicleSelect = `
 	SELECT id, user_id, display_name, manufacturer, model, model_year,
 	       battery_capacity_kwh, ac_charging_power_kw, dc_fast_charging_power_kw,
-	       charging_efficiency, current_battery_percent, connector_types, created_at, updated_at
+	       charging_efficiency, current_battery_percent, charging_status, connector_types, created_at, updated_at
 	FROM vehicles`
 
 const chargingRecordSelect = `
 	SELECT id, user_id, vehicle_id, started_at, ended_at,
 	       start_battery_percent, end_battery_percent, battery_energy_kwh,
 	       grid_energy_kwh, average_carbon_intensity, emissions_gco2,
+	       baseline_emissions_gco2, carbon_savings_gco2,
 	       created_at, updated_at
 	FROM charging_records`
 
-const chargingSessionColumns = `id, user_id, vehicle_id, status, started_at, target_at,
+const chargingSessionColumns = `id, user_id, vehicle_id, status, control_mode, started_at, target_at,
  initial_battery_percent, current_battery_percent, target_battery_percent, latitude, longitude,
  accumulated_battery_energy_kwh, accumulated_grid_energy_kwh, accumulated_emissions_gco2,
+ accumulated_baseline_battery_energy_kwh, accumulated_baseline_grid_energy_kwh,
+ accumulated_baseline_emissions_gco2, realized_carbon_savings_gco2,
  estimated_optimized_emissions_gco2, estimated_immediate_emissions_gco2, estimated_carbon_savings_gco2,
  last_controlled_at, completed_at, created_at, updated_at`
 
@@ -408,7 +493,7 @@ func vehicleFields(vehicle *account.Vehicle) []any {
 		&vehicle.ID, &vehicle.UserID, &vehicle.DisplayName, &vehicle.Manufacturer,
 		&vehicle.Model, &vehicle.ModelYear, &vehicle.BatteryCapacityKWh,
 		&vehicle.ACChargingPowerKW, &vehicle.DCFastChargingPowerKW,
-		&vehicle.ChargingEfficiency, &vehicle.CurrentBatteryPercent, &vehicle.ConnectorTypes, &vehicle.CreatedAt, &vehicle.UpdatedAt,
+		&vehicle.ChargingEfficiency, &vehicle.CurrentBatteryPercent, &vehicle.ChargingStatus, &vehicle.ConnectorTypes, &vehicle.CreatedAt, &vehicle.UpdatedAt,
 	}
 }
 
@@ -417,12 +502,13 @@ func chargingRecordFields(record *account.ChargingRecord) []any {
 		&record.ID, &record.UserID, &record.VehicleID, &record.StartedAt, &record.EndedAt,
 		&record.StartBatteryPercent, &record.EndBatteryPercent, &record.BatteryEnergyKWh,
 		&record.GridEnergyKWh, &record.AverageCarbonIntensity, &record.EmissionsGCO2,
+		&record.BaselineEmissionsGCO2, &record.CarbonSavingsGCO2,
 		&record.CreatedAt, &record.UpdatedAt,
 	}
 }
 
 func chargingSessionFields(session *account.ChargingSession) []any {
-	return []any{&session.ID, &session.UserID, &session.VehicleID, &session.Status, &session.StartedAt, &session.TargetAt, &session.InitialBatteryPercent, &session.CurrentBatteryPercent, &session.TargetBatteryPercent, &session.Latitude, &session.Longitude, &session.AccumulatedBatteryEnergyKWh, &session.AccumulatedGridEnergyKWh, &session.AccumulatedEmissionsGCO2, &session.EstimatedOptimizedEmissionsGCO2, &session.EstimatedImmediateEmissionsGCO2, &session.EstimatedCarbonSavingsGCO2, &session.LastControlledAt, &session.CompletedAt, &session.CreatedAt, &session.UpdatedAt}
+	return []any{&session.ID, &session.UserID, &session.VehicleID, &session.Status, &session.ControlMode, &session.StartedAt, &session.TargetAt, &session.InitialBatteryPercent, &session.CurrentBatteryPercent, &session.TargetBatteryPercent, &session.Latitude, &session.Longitude, &session.AccumulatedBatteryEnergyKWh, &session.AccumulatedGridEnergyKWh, &session.AccumulatedEmissionsGCO2, &session.AccumulatedBaselineBatteryEnergyKWh, &session.AccumulatedBaselineGridEnergyKWh, &session.AccumulatedBaselineEmissionsGCO2, &session.RealizedCarbonSavingsGCO2, &session.EstimatedOptimizedEmissionsGCO2, &session.EstimatedImmediateEmissionsGCO2, &session.EstimatedCarbonSavingsGCO2, &session.LastControlledAt, &session.CompletedAt, &session.CreatedAt, &session.UpdatedAt}
 }
 
 func mapNotFound(err error) error {
