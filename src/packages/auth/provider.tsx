@@ -72,10 +72,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const signInWithGoogle = useCallback(async (webIDToken?: string) => {
     if (Platform.OS === 'web') {
       if (!googleWebClientId) {
-        throw new Error('Google Web OAuth Client ID 환경변수가 설정되지 않았습니다.');
+        throw new Error('The Google Web OAuth Client ID environment variable is not configured.');
       }
       if (!webIDToken) {
-        throw new Error('Google에서 ID 토큰을 반환하지 않았습니다.');
+        throw new Error('Google did not return an ID token.');
       }
 
       const session = await loginWithGoogle(webIDToken, 'web browser');
@@ -85,11 +85,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
       return;
     }
     if (!googleWebClientId || !googleIOSClientId) {
-      throw new Error('Google OAuth Client ID 환경변수가 설정되지 않았습니다.');
+      throw new Error('The Google OAuth Client ID environment variables are not configured.');
     }
     if (googleWebClientId === googleIOSClientId) {
       throw new Error(
-        'iOS Client ID에 Web Client ID가 입력되어 있습니다. Google Cloud의 iOS 유형 Client ID로 변경하세요.',
+        'The iOS Client ID is set to the Web Client ID. Use an iOS Client ID from Google Cloud instead.',
       );
     }
 
@@ -97,7 +97,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     if (response.type !== 'success') return;
     const idToken = response.data.idToken;
     if (!idToken) {
-      throw new Error('Google에서 ID 토큰을 반환하지 않았습니다. Web Client ID를 확인하세요.');
+      throw new Error('Google did not return an ID token. Check the Web Client ID.');
     }
 
     const session = await loginWithGoogle(idToken, `${Platform.OS} app`);

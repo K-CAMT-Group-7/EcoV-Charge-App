@@ -1,7 +1,6 @@
 import { GoogleSigninButton } from '@react-native-google-signin/google-signin';
-import Leaf from 'lucide-react-native/icons/leaf';
 import { useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GoogleSignInButton as WebGoogleSignInButton } from '@/packages/auth/google-signin-button.web';
@@ -29,7 +28,7 @@ export default function LoginScreen() {
     try {
       await signInWithGoogle(idToken);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Google 로그인에 실패했습니다.');
+      setError(cause instanceof Error ? cause.message : 'Google sign-in failed.');
     } finally {
       setSubmitting(false);
     }
@@ -39,19 +38,24 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.container}>
         <View style={styles.brand}>
-          <View style={styles.logo}>
-            <Leaf size={34} color={colors.success} strokeWidth={1.8} />
-          </View>
+          <Image
+            source={require('../../assets/brand/ecov-charge-logo-square-transparent-v3.png')}
+            style={styles.logo}
+            resizeMode="contain"
+            accessibilityLabel="EcoV Charge logo"
+          />
           <Text style={styles.title}>EcoV Charge</Text>
           <Text style={styles.subtitle}>
-            탄소 집약도가 낮은 시간에 충전하고 차량과 충전 이력을 안전하게 관리하세요.
+            Charge when carbon intensity is low and securely manage your vehicles and charging
+            history.
           </Text>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>계속하려면 로그인하세요</Text>
+          <Text style={styles.cardTitle}>Sign in to continue</Text>
           <Text style={styles.cardDescription}>
-            Google 계정은 본인 확인에만 사용하며 차량과 충전 기록은 EcoV Charge 서버에 저장됩니다.
+            Your Google account is used only to verify your identity. Your vehicle and charging data
+            is stored securely on EcoV Charge servers.
           </Text>
 
           {Platform.OS === 'web' ? (
@@ -63,7 +67,7 @@ export default function LoginScreen() {
           ) : submitting ? (
             <View style={styles.loadingButton}>
               <ActivityIndicator color={colors.background} />
-              <Text style={styles.loadingText}>Google에 연결 중…</Text>
+              <Text style={styles.loadingText}>Connecting to Google…</Text>
             </View>
           ) : (
             <GoogleSigninButton
@@ -78,7 +82,7 @@ export default function LoginScreen() {
         </View>
 
         <Text style={styles.footer}>
-          로그인하면 서비스 이용 및 개인정보 처리방침에 동의하게 됩니다.
+          By signing in, you agree to our Terms of Service and Privacy Policy.
         </Text>
       </View>
     </SafeAreaView>
@@ -98,14 +102,8 @@ const styles = StyleSheet.create({
   },
   brand: { alignItems: 'center', marginBottom: 38 },
   logo: {
-    width: 78,
-    height: 78,
-    borderRadius: 25,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(118,230,172,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(118,230,172,0.24)',
+    width: 112,
+    height: 112,
   },
   title: { marginTop: 20, color: colors.text, fontSize: 30, fontWeight: '800' },
   subtitle: {
