@@ -6,6 +6,7 @@ import Check from 'lucide-react-native/icons/check';
 import ChevronDown from 'lucide-react-native/icons/chevron-down';
 import ChevronRight from 'lucide-react-native/icons/chevron-right';
 import Home from 'lucide-react-native/icons/house';
+import LogOut from 'lucide-react-native/icons/log-out';
 import Menu from 'lucide-react-native/icons/menu';
 import Settings from 'lucide-react-native/icons/settings';
 import X from 'lucide-react-native/icons/x';
@@ -24,6 +25,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useAuth } from '../packages/auth/provider';
 import {
   getCarbonIntensityForecast,
   isElectricityMapsConfigured,
@@ -253,6 +255,13 @@ const navItems: Array<{ label: string; icon: LucideIcon }> = [
 
 function AppMenu() {
   const [open, setOpen] = useState(false);
+  const { user, signOut } = useAuth();
+  const initials = (user?.displayName || user?.email || 'EC')
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <>
@@ -270,11 +279,11 @@ function AppMenu() {
           <Pressable style={styles.appMenu} onPress={(event) => event.stopPropagation()}>
             <View style={styles.profileRow}>
               <View style={styles.avatar}>
-                <Text style={styles.avatarText}>SW</Text>
+                <Text style={styles.avatarText}>{initials}</Text>
               </View>
               <View style={styles.profileCopy}>
-                <Text style={styles.profileName}>Seonwoo</Text>
-                <Text style={styles.profileEmail}>Home owner</Text>
+                <Text style={styles.profileName}>{user?.displayName || 'EcoV Charge User'}</Text>
+                <Text style={styles.profileEmail}>{user?.email}</Text>
               </View>
               <Pressable
                 accessibilityRole="button"
@@ -308,6 +317,19 @@ function AppMenu() {
                 </Pressable>
               );
             })}
+            <Pressable
+              onPress={() => {
+                setOpen(false);
+                void signOut();
+              }}
+              style={({ pressed }) => [styles.menuItem, pressed && styles.optionPressed]}
+            >
+              <View style={styles.menuItemIcon}>
+                <LogOut size={18} color={palette.muted} strokeWidth={1.9} />
+              </View>
+              <Text style={styles.menuItemLabel}>Sign out</Text>
+              <ChevronRight size={17} color={palette.muted} strokeWidth={1.8} />
+            </Pressable>
           </Pressable>
         </Pressable>
       </Modal>
@@ -420,7 +442,7 @@ export default function HomeScreen() {
             </View>
             <View style={styles.vehicleStatus}>
               <View>
-                <Text style={styles.vehicleName}>Model E</Text>
+                <Text style={styles.vehicleName}>Tesla Model Y Long Range</Text>
                 <Text style={styles.vehicleDetail}>Garage · Charging</Text>
               </View>
               <View style={styles.chargeValueWrap}>

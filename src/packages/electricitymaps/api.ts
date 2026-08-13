@@ -3,6 +3,7 @@ const API_URL = process.env.EXPO_PUBLIC_ELECTRICITYMAPS_API_URL?.replace(/\/+$/,
   '',
 );
 const API_KEY = process.env.EXPO_PUBLIC_ELECTRICITYMAPS_API_KEY;
+const SERVER_API_URL = process.env.EXPO_PUBLIC_SERVER_API_URL?.replace(/\/+$/, '');
 
 export interface GeolocationQuery {
   latitude: number;
@@ -10,7 +11,7 @@ export interface GeolocationQuery {
 }
 
 export function isElectricityMapsConfigured() {
-  return Boolean(API_URL && API_KEY);
+  return Boolean(SERVER_API_URL || (API_URL && API_KEY));
 }
 
 export type ApiRequestOptions = RequestInit;
@@ -28,6 +29,19 @@ export interface CarbonIntensity {
 export interface CarbonIntensityForecast {
   zone: string;
   forecast: CarbonIntensity[];
+}
+
+export interface CarbonIntensityForecastOptions {
+  /** API time resolution. The app keeps its existing 15-minute default. */
+  temporalGranularity?: '5_minutes' | '15_minutes' | 'hourly';
+  /** Number of future hours requested from Electricity Maps. */
+  horizonHours?: number;
+  request?: ApiRequestOptions;
+}
+
+interface ServerCarbonIntensityForecast {
+  zone: string;
+  points: Array<Omit<CarbonIntensity, 'zone'>>;
 }
 
 export class ElectricityMapsApiError extends Error {
@@ -132,16 +146,39 @@ export function getCarbonIntensity(zone: string, options?: ApiRequestOptions) {
  */
 export function getCarbonIntensityForecast(
   location: GeolocationQuery,
-  options?: ApiRequestOptions,
+  options: CarbonIntensityForecastOptions = {},
 ) {
   const params = new URLSearchParams({
     lat: String(location.latitude),
     lon: String(location.longitude),
-    temporalGranularity: '15_minutes',
-    horizonHours: '24',
+    temporalGranularity: options.temporalGranularity ?? '15_minutes',
+    horizonHours: String(options.horizonHours ?? 24),
   });
-  return apiRequest<CarbonIntensityForecast>(
-    `/v4/carbon-intensity/forecast?${params.toString()}`,
-    options,
-  );
+  if (!SERVER_API_URL) {
+    return apiRequest<CarbonIntensityForecast>(
+      `/v4/carbon-intensity/forecast?${params.toString()}`,
+      options.request,
+    );
+  }
+
+  const serverParams = new URLSearchParams({
+    lat: String(location.latitude),
+    lon: String(location.longitude),
+    horizonHours: String(options.horizonHours ?? 24),
+  });
+  return fetch(`${SERVER_API_URL}/v1/carbon/forecast?${serverParams.toString()}`, options.request)
+    .then(async (response) => {
+      const body = await readResponseBody(response);
+      if (!response.ok) {
+        throw new ElectricityMapsApiError(
+          `EcoV Charge server request failed with ${response.status} ${response.statusText}.`,
+          { status: response.status, statusText: response.statusText, details: body },
+        );
+      }
+      return body as ServerCarbonIntensityForecast;
+    })
+    .then((result) => ({
+      zone: result.zone,
+      forecast: result.points.map((point) => ({ ...point, zone: result.zone })),
+    }));
 }

@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ecov_charge
+      POSTGRES_USER: ecov_charge
+      POSTGRES_PASSWORD: ecov_charge
+    ports:
+      - '5432:5432'
+    volumes:
+      - ecov_charge_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ecov_charge -d ecov_charge']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  ecov_charge_postgres:
