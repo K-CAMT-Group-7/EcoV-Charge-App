@@ -34,7 +34,7 @@ interface AuthContextValue {
   user: ServerUser | null;
   sessionToken: string | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: (webIDToken?: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -69,9 +69,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
     };
   }, []);
 
-  const signInWithGoogle = useCallback(async () => {
+  const signInWithGoogle = useCallback(async (webIDToken?: string) => {
     if (Platform.OS === 'web') {
-      throw new Error('Google 로그인은 현재 iOS 개발 빌드에서 지원됩니다.');
+      if (!googleWebClientId) {
+        throw new Error('Google Web OAuth Client ID 환경변수가 설정되지 않았습니다.');
+      }
+      if (!webIDToken) {
+        throw new Error('Google에서 ID 토큰을 반환하지 않았습니다.');
+      }
+
+      const session = await loginWithGoogle(webIDToken, 'web browser');
+      await writeStoredToken(session.token);
+      setSessionToken(session.token);
+      setUser(session.user);
+      return;
     }
     if (!googleWebClientId || !googleIOSClientId) {
       throw new Error('Google OAuth Client ID 환경변수가 설정되지 않았습니다.');

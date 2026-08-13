@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { GoogleSignInButton as WebGoogleSignInButton } from '@/packages/auth/google-signin-button.web';
 import { useAuth } from '@/packages/auth/provider';
 
 const colors = {
@@ -22,11 +23,11 @@ export default function LoginScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleGoogleSignIn() {
+  async function handleGoogleSignIn(idToken?: string) {
     setError(null);
     setSubmitting(true);
     try {
-      await signInWithGoogle();
+      await signInWithGoogle(idToken);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Google 로그인에 실패했습니다.');
     } finally {
@@ -54,11 +55,11 @@ export default function LoginScreen() {
           </Text>
 
           {Platform.OS === 'web' ? (
-            <View style={styles.webNotice}>
-              <Text style={styles.webNoticeText}>
-                Google 로그인은 현재 iOS 개발 빌드에서 사용할 수 있습니다.
-              </Text>
-            </View>
+            <WebGoogleSignInButton
+              disabled={submitting}
+              onCredential={handleGoogleSignIn}
+              onError={(cause) => setError(cause.message)}
+            />
           ) : submitting ? (
             <View style={styles.loadingButton}>
               <ActivityIndicator color={colors.background} />
@@ -136,13 +137,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   loadingText: { color: colors.background, fontSize: 14, fontWeight: '700' },
-  webNotice: {
-    marginTop: 22,
-    padding: 15,
-    borderRadius: 14,
-    backgroundColor: 'rgba(114,213,255,0.08)',
-  },
-  webNoticeText: { color: colors.primary, fontSize: 13, lineHeight: 19, textAlign: 'center' },
   error: { marginTop: 14, color: colors.danger, fontSize: 13, lineHeight: 19, textAlign: 'center' },
   footer: {
     marginTop: 24,
