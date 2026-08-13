@@ -25,7 +25,7 @@ bun run server:dev
 
 서버 시작 시 `migrations` 디렉터리의 아직 적용되지 않은 SQL을 자동 실행한다.
 
-## iOS Google 로그인
+## Web 및 iOS Google 로그인
 
 저장소 루트 `.env`에는 Google Cloud에서 만든 Web 및 iOS OAuth Client ID가 필요하다.
 
@@ -42,10 +42,16 @@ Client ID를 넣는다. `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`에는 번들 ID
 Web Client ID를 넣으면 Google이 `Custom scheme URIs are not allowed for 'WEB' client type`
 오류로 로그인을 차단한다. Client Secret은 앱 환경변수에 넣지 않는다.
 
+웹 로그인을 사용하려면 Google Cloud Console의 Web Client ID에 실제 웹 주소를
+**승인된 자바스크립트 원본**으로 등록한다. 로컬 기본값은 `http://localhost:8081`이며,
+프로토콜, 호스트, 포트가 모두 일치해야 한다. 웹 클라이언트는 Google Identity Services가
+발급한 ID 토큰을 동일한 서버 로그인 API로 교환한다.
+
 `app.config.ts`는 iOS Client ID에서 Google URL Scheme을 생성한다. Google Sign-In은 네이티브 모듈이므로 Expo Go가 아니라 iOS 개발 빌드로 실행한다.
 
 ```bash
 bun run ios
+bun run web
 ```
 
 ## API
