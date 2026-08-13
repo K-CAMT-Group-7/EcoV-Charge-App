@@ -95,9 +95,9 @@ export default function VehiclesScreen() {
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <Text style={styles.eyebrow}>MY VEHICLES</Text>
-          <Text style={styles.title}>Choose your Tesla.</Text>
+          <Text style={styles.title}>Choose your EV.</Text>
           <Text style={styles.subtitle}>
-            Select a representative model specification and add it to your account.
+            Select car to add to your account.
           </Text>
 
           <Text style={styles.sectionTitle}>Tesla catalog</Text>
