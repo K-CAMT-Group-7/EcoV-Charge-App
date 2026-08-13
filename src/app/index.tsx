@@ -611,7 +611,6 @@ export default function HomeScreen() {
 
           <View style={styles.sectionHeading}>
             <Text style={styles.sectionTitle}>Grid carbon</Text>
-            <Text style={styles.sectionLink}>View details</Text>
           </View>
           <CarbonIntensityCard forecast={carbonForecast} country={userLocation?.country} />
         </ScrollView>
@@ -885,11 +884,6 @@ const styles = StyleSheet.create({
     color: palette.text,
     fontSize: 17,
     fontWeight: '700',
-  },
-  sectionLink: {
-    color: palette.primary,
-    fontSize: 13,
-    fontWeight: '600',
   },
   carbonCard: {
     borderRadius: 24,
