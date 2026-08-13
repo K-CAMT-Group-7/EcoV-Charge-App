@@ -14,8 +14,7 @@ import Plus from 'lucide-react-native/icons/plus';
 import Settings from 'lucide-react-native/icons/settings';
 import X from 'lucide-react-native/icons/x';
 import Zap from 'lucide-react-native/icons/zap';
-import { useState } from 'react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Image,
   Modal,
@@ -757,13 +756,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 10,
+    paddingBottom: 20,
     paddingHorizontal: 20,
+    backgroundColor: palette.background,
   },
   locationStatus: {
     color: palette.muted,
     fontSize: 10,
+    lineHeight: 12,
     marginLeft: 53,
-    marginTop: -2,
+    marginTop: -16,
   },
   vehicleSelector: {
     flexDirection: 'row',
@@ -793,6 +795,7 @@ const styles = StyleSheet.create({
   },
   selectorCopy: {
     flexShrink: 1,
+    transform: [{ translateY: -3 }],
   },
   selectorValueRow: {
     flexDirection: 'row',
@@ -821,7 +824,7 @@ const styles = StyleSheet.create({
     opacity: 0.68,
   },
   intro: {
-    marginTop: 34,
+    marginTop: 26,
     marginBottom: 20,
   },
   eyebrow: {
