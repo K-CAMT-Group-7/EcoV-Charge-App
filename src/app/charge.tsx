@@ -616,6 +616,7 @@ function ActionConfirmationModal({
 const CLOCK_SIZE = 264;
 const CLOCK_CENTER = CLOCK_SIZE / 2;
 const CLOCK_RADIUS = 101;
+const FULL_CIRCLE = Math.PI * 2;
 
 function ClockRingModal({
   visible,
@@ -632,38 +633,102 @@ function ClockRingModal({
   const [minute, setMinute] = useState(0);
   const [period, setPeriod] = useState<'AM' | 'PM'>('AM');
   const [dayOffset, setDayOffset] = useState(0);
+  const [clockUnit, setClockUnit] = useState<'hour' | 'minute'>('hour');
+  const previousAngle = useRef<number | null>(null);
+  const periodRef = useRef<'AM' | 'PM'>('AM');
 
   useEffect(() => {
     if (!visible) return;
     const hours = value.getHours();
     setHour(hours % 12 || 12);
     setMinute((Math.round(value.getMinutes() / 5) * 5) % 60);
-    setPeriod(hours >= 12 ? 'PM' : 'AM');
+    const initialPeriod = hours >= 12 ? 'PM' : 'AM';
+    setPeriod(initialPeriod);
+    periodRef.current = initialPeriod;
     setDayOffset(isTomorrow(value) ? 1 : 0);
+    setClockUnit('hour');
+    previousAngle.current = null;
   }, [value, visible]);
 
-  const updateFromPoint = useCallback((x: number, y: number) => {
-    const angle = Math.atan2(x - CLOCK_CENTER, CLOCK_CENTER - y);
-    const normalized = (angle + Math.PI * 2) % (Math.PI * 2);
-    const selected = Math.round((normalized / (Math.PI * 2)) * 12) % 12;
-    setHour(selected || 12);
-  }, []);
+  const updateFromPoint = useCallback(
+    (x: number, y: number, trackDayBoundary: boolean) => {
+      const angle = Math.atan2(x - CLOCK_CENTER, CLOCK_CENTER - y);
+      const normalized = (angle + FULL_CIRCLE) % FULL_CIRCLE;
+
+      if (clockUnit === 'minute') {
+        setMinute((Math.round((normalized / FULL_CIRCLE) * 12) % 12) * 5);
+        previousAngle.current = normalized;
+        return;
+      }
+
+      if (trackDayBoundary && previousAngle.current !== null) {
+        const rawDelta = normalized - previousAngle.current;
+        const delta =
+          rawDelta > Math.PI
+            ? rawDelta - FULL_CIRCLE
+            : rawDelta < -Math.PI
+              ? rawDelta + FULL_CIRCLE
+              : rawDelta;
+        const crossedClockwise =
+          previousAngle.current > Math.PI * 1.5 && normalized < Math.PI * 0.5;
+        const crossedCounterClockwise =
+          previousAngle.current < Math.PI * 0.5 && normalized > Math.PI * 1.5;
+
+        if (crossedClockwise && delta > 0) {
+          if (periodRef.current === 'AM') {
+            periodRef.current = 'PM';
+            setPeriod('PM');
+          } else {
+            setDayOffset(1);
+            periodRef.current = 'AM';
+            setPeriod('AM');
+          }
+        } else if (crossedCounterClockwise && delta < 0) {
+          if (periodRef.current === 'PM') {
+            periodRef.current = 'AM';
+            setPeriod('AM');
+          } else {
+            setDayOffset(0);
+            periodRef.current = 'PM';
+            setPeriod('PM');
+          }
+        }
+      }
+
+      const selected = Math.round((normalized / FULL_CIRCLE) * 12) % 12;
+      setHour(selected || 12);
+      previousAngle.current = normalized;
+    },
+    [clockUnit],
+  );
   const panResponder = useMemo(
     () =>
       PanResponder.create({
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: (event) =>
-          updateFromPoint(event.nativeEvent.locationX, event.nativeEvent.locationY),
+        onPanResponderGrant: (event) => {
+          previousAngle.current = null;
+          updateFromPoint(event.nativeEvent.locationX, event.nativeEvent.locationY, false);
+        },
         onPanResponderMove: (event) =>
-          updateFromPoint(event.nativeEvent.locationX, event.nativeEvent.locationY),
+          updateFromPoint(event.nativeEvent.locationX, event.nativeEvent.locationY, true),
+        onPanResponderRelease: () => {
+          previousAngle.current = null;
+          if (clockUnit === 'hour') setClockUnit('minute');
+        },
+        onPanResponderTerminate: () => {
+          previousAngle.current = null;
+        },
       }),
-    [updateFromPoint],
+    [clockUnit, updateFromPoint],
   );
-  const selectedAngle = ((hour % 12) / 12) * Math.PI * 2;
+  const selectedValue = clockUnit === 'hour' ? hour % 12 : minute / 5;
+  const selectedAngle = (selectedValue / 12) * FULL_CIRCLE;
   const knobX = CLOCK_CENTER + Math.sin(selectedAngle) * CLOCK_RADIUS;
   const knobY = CLOCK_CENTER - Math.cos(selectedAngle) * CLOCK_RADIUS;
-  const lineAngle = (hour % 12) * 30 - 90;
+  const lineAngle = selectedValue * 30 - 90;
   const lineMidX = CLOCK_CENTER + Math.sin(selectedAngle) * (CLOCK_RADIUS / 2);
   const lineMidY = CLOCK_CENTER - Math.cos(selectedAngle) * (CLOCK_RADIUS / 2);
   const preview = buildClockDate(hour, minute, period, dayOffset);
@@ -673,10 +738,20 @@ function ClockRingModal({
       <View style={styles.modalBackdrop}>
         <View style={styles.clockModal}>
           <Text style={styles.clockEyebrow}>COMPLETE CHARGING BY</Text>
-          <Text style={styles.clockTime}>
-            {String(hour).padStart(2, '0')}:{String(minute).padStart(2, '0')}{' '}
+          <View style={styles.clockTimeRow}>
+            <Pressable onPress={() => setClockUnit('hour')}>
+              <Text style={[styles.clockTime, clockUnit === 'hour' && styles.clockTimeActive]}>
+                {String(hour).padStart(2, '0')}
+              </Text>
+            </Pressable>
+            <Text style={styles.clockTime}>:</Text>
+            <Pressable onPress={() => setClockUnit('minute')}>
+              <Text style={[styles.clockTime, clockUnit === 'minute' && styles.clockTimeActive]}>
+                {String(minute).padStart(2, '0')}
+              </Text>
+            </Pressable>
             <Text style={styles.clockPeriod}>{period}</Text>
-          </Text>
+          </View>
           <View style={styles.dayTabs}>
             <Pressable
               onPress={() => setDayOffset(0)}
@@ -695,8 +770,14 @@ function ClockRingModal({
               </Text>
             </Pressable>
           </View>
-          <View style={styles.clockRing} {...panResponder.panHandlers}>
+          <View
+            accessibilityLabel={`${clockUnit} picker`}
+            accessibilityHint="Tap a position or drag around the dial"
+            style={styles.clockRing}
+            {...panResponder.panHandlers}
+          >
             <View
+              pointerEvents="none"
               style={[
                 styles.clockHand,
                 {
@@ -707,32 +788,40 @@ function ClockRingModal({
               ]}
             />
             {Array.from({ length: 12 }, (_, index) => {
-              const number = index === 0 ? 12 : index;
+              const number = clockUnit === 'hour' ? (index === 0 ? 12 : index) : index * 5;
               const angle = (index / 12) * Math.PI * 2;
+              const isActive = clockUnit === 'hour' ? number === hour : number === minute;
               return (
                 <View
                   key={number}
+                  pointerEvents="none"
                   style={[
                     styles.hourMark,
                     {
                       left: CLOCK_CENTER + Math.sin(angle) * CLOCK_RADIUS - 18,
                       top: CLOCK_CENTER - Math.cos(angle) * CLOCK_RADIUS - 18,
                     },
-                    number === hour && styles.hourMarkActive,
+                    isActive && styles.hourMarkActive,
                   ]}
                 >
-                  <Text style={[styles.hourText, number === hour && styles.hourTextActive]}>
-                    {number}
+                  <Text style={[styles.hourText, isActive && styles.hourTextActive]}>
+                    {clockUnit === 'minute' ? String(number).padStart(2, '0') : number}
                   </Text>
                 </View>
               );
             })}
-            <View style={styles.clockCenterDot} />
-            <View style={[styles.clockKnob, { left: knobX - 10, top: knobY - 10 }]} />
+            <View pointerEvents="none" style={styles.clockCenterDot} />
+            <View
+              pointerEvents="none"
+              style={[styles.clockKnob, { left: knobX - 12, top: knobY - 12 }]}
+            />
           </View>
           <View style={styles.periodRow}>
             <Pressable
-              onPress={() => setPeriod('AM')}
+              onPress={() => {
+                periodRef.current = 'AM';
+                setPeriod('AM');
+              }}
               style={[styles.periodButton, period === 'AM' && styles.periodButtonActive]}
             >
               <Text style={[styles.periodText, period === 'AM' && styles.periodTextActive]}>
@@ -740,7 +829,10 @@ function ClockRingModal({
               </Text>
             </Pressable>
             <Pressable
-              onPress={() => setPeriod('PM')}
+              onPress={() => {
+                periodRef.current = 'PM';
+                setPeriod('PM');
+              }}
               style={[styles.periodButton, period === 'PM' && styles.periodButtonActive]}
             >
               <Text style={[styles.periodText, period === 'PM' && styles.periodTextActive]}>
@@ -748,26 +840,9 @@ function ClockRingModal({
               </Text>
             </Pressable>
           </View>
-          <View style={styles.minuteRow}>
-            {[0, 15, 30, 45].map((minuteOption) => (
-              <Pressable
-                key={minuteOption}
-                onPress={() => setMinute(minuteOption)}
-                style={[styles.minuteChip, minute === minuteOption && styles.minuteChipActive]}
-              >
-                <Text
-                  style={[styles.minuteText, minute === minuteOption && styles.minuteTextActive]}
-                >
-                  :{String(minuteOption).padStart(2, '0')}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          {(isTomorrow(preview) || preview <= new Date()) && (
-            <View style={styles.overnightPill}>
-              <Text style={styles.overnightText}>Overnight · completion is set for tomorrow</Text>
-            </View>
-          )}
+          <Text style={styles.clockHint}>
+            {clockUnit === 'hour' ? 'Tap or drag to set the hour' : 'Tap or drag in 5-minute steps'}
+          </Text>
           <View style={styles.modalActions}>
             <Pressable onPress={onClose} style={styles.cancelButton}>
               <Text style={styles.cancelText}>Cancel</Text>
@@ -1109,8 +1184,10 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,.12)',
   },
   clockEyebrow: { color: colors.muted, fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-  clockTime: { color: colors.text, fontSize: 33, fontWeight: '800', marginTop: 7 },
-  clockPeriod: { color: colors.primary, fontSize: 15 },
+  clockTimeRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 7 },
+  clockTime: { color: colors.muted, fontSize: 33, fontWeight: '800' },
+  clockTimeActive: { color: colors.text },
+  clockPeriod: { color: colors.primary, fontSize: 15, fontWeight: '800', marginLeft: 7 },
   dayTabs: {
     flexDirection: 'row',
     padding: 4,
@@ -1162,9 +1239,9 @@ const styles = StyleSheet.create({
   },
   clockKnob: {
     position: 'absolute',
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     borderWidth: 3,
     borderColor: colors.primary,
     backgroundColor: colors.surface,
@@ -1184,24 +1261,7 @@ const styles = StyleSheet.create({
   },
   periodText: { color: colors.muted, fontWeight: '700' },
   periodTextActive: { color: colors.primary },
-  minuteRow: { flexDirection: 'row', gap: 7, marginTop: 12 },
-  minuteChip: {
-    paddingHorizontal: 13,
-    paddingVertical: 8,
-    borderRadius: 11,
-    backgroundColor: colors.surfaceElevated,
-  },
-  minuteChipActive: { backgroundColor: colors.primary },
-  minuteText: { color: colors.muted, fontSize: 12, fontWeight: '700' },
-  minuteTextActive: { color: colors.background },
-  overnightPill: {
-    marginTop: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: 'rgba(118,230,172,.09)',
-  },
-  overnightText: { color: colors.success, fontSize: 11, fontWeight: '700' },
+  clockHint: { color: colors.muted, fontSize: 11, fontWeight: '700', marginTop: 12 },
   modalActions: { flexDirection: 'row', gap: 10, width: '100%', marginTop: 18 },
   cancelButton: {
     flex: 1,
