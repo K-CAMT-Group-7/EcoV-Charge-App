@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ecov-charge/ecov-charge/apps/server/internal/auth"
+	"github.com/ecov-charge/ecov-charge/apps/server/internal/charging"
 	"github.com/ecov-charge/ecov-charge/apps/server/internal/config"
 	"github.com/ecov-charge/ecov-charge/apps/server/internal/database"
 	"github.com/ecov-charge/ecov-charge/apps/server/internal/electricitymaps"
@@ -39,16 +40,20 @@ func main() {
 
 	carbonClient := electricitymaps.NewClient(cfg.ElectricityMapsBaseURL, cfg.ElectricityMapsAPIKey, nil)
 	accountStore := postgres.NewStore(pool)
+	schedulerContext, schedulerCancel := context.WithCancel(context.Background())
+	defer schedulerCancel()
+	go (charging.Scheduler{Store: accountStore, Forecast: carbonClient, Logger: slog.Default()}).Run(schedulerContext)
 	authService := auth.NewService(
 		accountStore,
 		auth.NewGoogleIDTokenVerifier(cfg.GoogleClientID),
 		cfg.SessionTTL,
 	)
 	app := httpapi.New(httpapi.Dependencies{
-		CarbonForecast: carbonClient,
-		AllowedOrigins: cfg.AllowedOrigins,
-		Accounts:       accountStore,
-		Auth:           authService,
+		CarbonForecast:   carbonClient,
+		AllowedOrigins:   cfg.AllowedOrigins,
+		Accounts:         accountStore,
+		ChargingSessions: accountStore,
+		Auth:             authService,
 	})
 
 	errCh := make(chan error, 1)

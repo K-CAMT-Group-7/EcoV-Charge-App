@@ -4,8 +4,10 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ecov-charge/ecov-charge/apps/server/internal/account"
+	"github.com/ecov-charge/ecov-charge/apps/server/internal/charging"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -29,6 +31,20 @@ type vehicleRequest struct {
 	DCFastChargingPowerKW float64  `json:"dcFastChargingPowerKw"`
 	ChargingEfficiency    float64  `json:"chargingEfficiency"`
 	ConnectorTypes        []string `json:"connectorTypes"`
+}
+
+type chargingSessionRequest struct {
+	VehicleID            string    `json:"vehicleId"`
+	TargetBatteryPercent float64   `json:"targetBatteryPercent"`
+	TargetAt             time.Time `json:"targetAt"`
+	Latitude             float64   `json:"latitude"`
+	Longitude            float64   `json:"longitude"`
+}
+
+type chargingEstimateResponse struct {
+	OptimizedEmissionsGCO2 float64 `json:"optimizedEmissionsGco2"`
+	ImmediateEmissionsGCO2 float64 `json:"immediateEmissionsGco2"`
+	CarbonSavingsGCO2      float64 `json:"carbonSavingsGco2"`
 }
 
 func (request vehicleRequest) vehicle() account.Vehicle {
@@ -199,6 +215,120 @@ func (api *API) deleteChargingRecord(c fiber.Ctx) error {
 		return resourceError(err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (api *API) createChargingSession(c fiber.Ctx) error {
+	var request chargingSessionRequest
+	if err := c.Bind().Body(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON request body")
+	}
+	estimate, err := api.calculateChargingEstimate(c, request)
+	if err != nil {
+		return err
+	}
+	session, err := api.chargingSessions.CreateChargingSession(c.Context(), currentUser(c).ID, account.ChargingSession{VehicleID: strings.TrimSpace(request.VehicleID), StartedAt: time.Now().UTC(), TargetAt: request.TargetAt.UTC(), TargetBatteryPercent: request.TargetBatteryPercent, Latitude: request.Latitude, Longitude: request.Longitude, EstimatedOptimizedEmissionsGCO2: estimate.OptimizedEmissionsGCO2, EstimatedImmediateEmissionsGCO2: estimate.ImmediateEmissionsGCO2, EstimatedCarbonSavingsGCO2: estimate.CarbonSavingsGCO2})
+	if err != nil {
+		return resourceError(err)
+	}
+	return c.Status(fiber.StatusCreated).JSON(session)
+}
+
+func (api *API) estimateChargingSession(c fiber.Ctx) error {
+	var request chargingSessionRequest
+	if err := c.Bind().Body(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON request body")
+	}
+	estimate, err := api.calculateChargingEstimate(c, request)
+	if err != nil {
+		return err
+	}
+	return c.JSON(estimate)
+}
+
+func (api *API) calculateChargingEstimate(c fiber.Ctx, request chargingSessionRequest) (chargingEstimateResponse, error) {
+	if strings.TrimSpace(request.VehicleID) == "" || request.TargetAt.IsZero() || !request.TargetAt.After(time.Now().UTC()) || request.TargetBatteryPercent > 100 || request.Latitude < -90 || request.Latitude > 90 || request.Longitude < -180 || request.Longitude > 180 {
+		return chargingEstimateResponse{}, fiber.NewError(fiber.StatusBadRequest, "vehicle, battery targets, future target time, and valid location are required")
+	}
+	if api.chargingSessions == nil {
+		return chargingEstimateResponse{}, fiber.NewError(fiber.StatusServiceUnavailable, "charging service is not configured")
+	}
+	vehicle, err := api.accounts.GetVehicle(c.Context(), currentUser(c).ID, strings.TrimSpace(request.VehicleID))
+	if err != nil {
+		return chargingEstimateResponse{}, resourceError(err)
+	}
+	if request.TargetBatteryPercent <= vehicle.CurrentBatteryPercent {
+		return chargingEstimateResponse{}, fiber.NewError(fiber.StatusBadRequest, "target battery percentage must be greater than the current battery")
+	}
+	now := time.Now().UTC().Truncate(5 * time.Minute)
+	horizon := int(mathCeilHours(request.TargetAt.Sub(now)))
+	if horizon < 1 || horizon > 24 {
+		return chargingEstimateResponse{}, fiber.NewError(fiber.StatusBadRequest, "target time must be within the next 24 hours")
+	}
+	forecast, err := api.carbonForecast.Forecast(c.Context(), request.Latitude, request.Longitude, horizon)
+	if err != nil {
+		return chargingEstimateResponse{}, upstreamError(err)
+	}
+	input := charging.PlanInput{Now: now, Deadline: request.TargetAt.UTC(), CurrentEnergyKWh: vehicle.BatteryCapacityKWh * vehicle.CurrentBatteryPercent / 100, TargetEnergyKWh: vehicle.BatteryCapacityKWh * request.TargetBatteryPercent / 100, Vehicle: charging.Vehicle{BatteryCapacityKWh: vehicle.BatteryCapacityKWh, MaxChargePowerKW: vehicle.ACChargingPowerKW, ChargingEfficiency: vehicle.ChargingEfficiency}}
+	plan, err := charging.BuildPlan(input, forecast.Points)
+	if errors.Is(err, charging.ErrInfeasible) {
+		return chargingEstimateResponse{}, fiber.NewError(fiber.StatusUnprocessableEntity, err.Error())
+	}
+	if err != nil {
+		return chargingEstimateResponse{}, fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	optimized, immediate, savings := charging.EstimateCarbonSavings(input, forecast.Points, plan)
+	return chargingEstimateResponse{OptimizedEmissionsGCO2: optimized, ImmediateEmissionsGCO2: immediate, CarbonSavingsGCO2: savings}, nil
+}
+
+func (api *API) getActiveChargingSession(c fiber.Ctx) error {
+	vehicleID := strings.TrimSpace(c.Query("vehicleId"))
+	if vehicleID == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "vehicleId is required")
+	}
+	if api.chargingSessions == nil {
+		return fiber.NewError(fiber.StatusServiceUnavailable, "charging service is not configured")
+	}
+	session, err := api.chargingSessions.GetActiveChargingSession(c.Context(), currentUser(c).ID, vehicleID)
+	if errors.Is(err, account.ErrNotFound) {
+		return c.JSON(fiber.Map{"chargingSession": nil})
+	}
+	if err != nil {
+		return err
+	}
+	return c.JSON(fiber.Map{"chargingSession": session})
+}
+
+func (api *API) stopChargingSession(c fiber.Ctx) error {
+	if api.chargingSessions == nil {
+		return fiber.NewError(fiber.StatusServiceUnavailable, "charging service is not configured")
+	}
+	session, err := api.chargingSessions.StopChargingSession(c.Context(), currentUser(c).ID, c.Params("sessionId"), time.Now().UTC())
+	if err != nil {
+		return resourceError(err)
+	}
+	return c.JSON(session)
+}
+
+func (api *API) forceTopUpChargingSession(c fiber.Ctx) error {
+	if api.chargingSessions == nil {
+		return fiber.NewError(fiber.StatusServiceUnavailable, "charging service is not configured")
+	}
+	session, err := api.chargingSessions.ForceTopUpChargingSession(c.Context(), currentUser(c).ID, c.Params("sessionId"))
+	if err != nil {
+		return resourceError(err)
+	}
+	return c.JSON(session)
+}
+
+func (api *API) disableForceTopUpChargingSession(c fiber.Ctx) error {
+	if api.chargingSessions == nil {
+		return fiber.NewError(fiber.StatusServiceUnavailable, "charging service is not configured")
+	}
+	session, err := api.chargingSessions.DisableForceTopUpChargingSession(c.Context(), currentUser(c).ID, c.Params("sessionId"))
+	if err != nil {
+		return resourceError(err)
+	}
+	return c.JSON(session)
 }
 
 func currentUser(c fiber.Ctx) account.User {

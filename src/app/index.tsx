@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { LucideIcon } from 'lucide-react-native';
 import Activity from 'lucide-react-native/icons/activity';
 import ArrowRight from 'lucide-react-native/icons/arrow-right';
@@ -9,6 +9,7 @@ import ChevronRight from 'lucide-react-native/icons/chevron-right';
 import Home from 'lucide-react-native/icons/house';
 import LogOut from 'lucide-react-native/icons/log-out';
 import Menu from 'lucide-react-native/icons/menu';
+import Plus from 'lucide-react-native/icons/plus';
 import Settings from 'lucide-react-native/icons/settings';
 import X from 'lucide-react-native/icons/x';
 import Zap from 'lucide-react-native/icons/zap';
@@ -37,7 +38,12 @@ import {
   saveUserLocation,
   type UserCountry,
 } from '../packages/location/api';
-import { listVehicles, type ServerVehicle } from '../packages/server/api';
+import {
+  getActiveChargingSession,
+  listVehicles,
+  type ServerChargingSession,
+  type ServerVehicle,
+} from '../packages/server/api';
 
 const palette = {
   background: '#07111F',
@@ -367,7 +373,16 @@ function AppMenu() {
   );
 }
 
-function ChargeAction({ onPress }: { onPress: () => void }) {
+function ChargeAction({
+  onPress,
+  session,
+}: {
+  onPress: () => void;
+  session: ServerChargingSession | null;
+}) {
+  const detail = session
+    ? `${session.currentBatteryPercent.toFixed(0)}% → ${session.targetBatteryPercent.toFixed(0)}% · By ${new Date(session.targetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : 'Charge smarter. Reduce carbon.';
   return (
     <View style={styles.chargeActionWrap}>
       <Pressable
@@ -380,8 +395,12 @@ function ChargeAction({ onPress }: { onPress: () => void }) {
           <Zap size={20} color={palette.primary} strokeWidth={2.1} />
         </View>
         <View style={styles.chargeActionCopy}>
-          <Text style={styles.chargeActionTitle}>Start charging</Text>
-          <Text style={styles.chargeActionDetail}>Cleaner energy starts at 7:30 PM</Text>
+          <Text style={styles.chargeActionTitle}>
+            {session ? 'On Charging...' : 'Start charging'}
+          </Text>
+          <Text numberOfLines={1} style={styles.chargeActionDetail}>
+            {detail}
+          </Text>
         </View>
         <View style={styles.chargeActionArrow}>
           <ArrowRight size={19} color={palette.background} strokeWidth={2.1} />
@@ -391,12 +410,28 @@ function ChargeAction({ onPress }: { onPress: () => void }) {
   );
 }
 
+function getVehicleChargingStatus(
+  vehicle?: ServerVehicle,
+  activeSession?: ServerChargingSession | null,
+) {
+  if (!vehicle) return 'Choose a Tesla model';
+  if (activeSession) return 'Charging';
+  if (vehicle.chargingStatus === 'charging') return 'Charging';
+  if (vehicle.chargingStatus === 'completed') return 'Charging complete';
+  return 'Connected to charger';
+}
+
 export default function HomeScreen() {
+  const { vehicleId: requestedVehicleId } = useLocalSearchParams<{ vehicleId?: string }>();
   const [userLocation, setUserLocation] = useState<UserCountry | null>(null);
   const [carbonForecast, setCarbonForecast] = useState<number[]>(() => getFallbackForecast());
   const [locationStatus, setLocationStatus] = useState('Detecting your location…');
   const [vehicles, setVehicles] = useState<ServerVehicle[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const [activeChargingSession, setActiveChargingSession] = useState<ServerChargingSession | null>(
+    null,
+  );
+  const [showChargeVehiclePrompt, setShowChargeVehiclePrompt] = useState(false);
   const router = useRouter();
   const { sessionToken } = useAuth();
   const primaryVehicle =
@@ -411,9 +446,12 @@ export default function HomeScreen() {
         if (active) {
           setVehicles(accountVehicles);
           setSelectedVehicleId((current) =>
-            current && accountVehicles.some((vehicle) => vehicle.id === current)
-              ? current
-              : (accountVehicles[0]?.id ?? null),
+            requestedVehicleId &&
+            accountVehicles.some((vehicle) => vehicle.id === requestedVehicleId)
+              ? requestedVehicleId
+              : current && accountVehicles.some((vehicle) => vehicle.id === current)
+                ? current
+                : (accountVehicles[0]?.id ?? null),
           );
         }
       } catch {
@@ -421,10 +459,34 @@ export default function HomeScreen() {
       }
     }
     void hydrateVehicles();
+    const timer = setInterval(() => void hydrateVehicles(), 15_000);
     return () => {
       active = false;
+      clearInterval(timer);
     };
-  }, [sessionToken]);
+  }, [requestedVehicleId, sessionToken]);
+
+  useEffect(() => {
+    let active = true;
+    async function hydrateChargingSession() {
+      if (!sessionToken || !primaryVehicle) {
+        if (active) setActiveChargingSession(null);
+        return;
+      }
+      try {
+        const result = await getActiveChargingSession(sessionToken, primaryVehicle.id);
+        if (active) setActiveChargingSession(result);
+      } catch {
+        if (active) setActiveChargingSession(null);
+      }
+    }
+    void hydrateChargingSession();
+    const timer = setInterval(() => void hydrateChargingSession(), 15_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [primaryVehicle, sessionToken]);
 
   useEffect(() => {
     let active = true;
@@ -492,17 +554,34 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.homeVisual}>
-            <Image
-              accessibilityLabel="전기차가 연결된 충전 공간"
-              source={require('../../assets/images/home-garage-hero.png')}
-              resizeMode="cover"
-              style={styles.heroImage}
-            />
-            <View style={styles.imageShade} pointerEvents="none" />
-            <View style={styles.livePill}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE</Text>
-            </View>
+            {primaryVehicle ? (
+              <>
+                <Image
+                  accessibilityLabel="전기차가 연결된 충전 공간"
+                  source={require('../../assets/images/home-garage-hero.png')}
+                  resizeMode="cover"
+                  style={styles.heroImage}
+                />
+                <View style={styles.imageShade} pointerEvents="none" />
+                <View style={styles.livePill}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.liveText}>LIVE</Text>
+                </View>
+              </>
+            ) : (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="차량 추가"
+                onPress={() => router.push('/vehicles')}
+                style={({ pressed }) => [styles.emptyVehicleVisual, pressed && styles.pressed]}
+              >
+                <View style={styles.emptyVehiclePlus}>
+                  <Plus size={36} color={palette.primary} strokeWidth={1.8} />
+                </View>
+                <Text style={styles.emptyVehicleTitle}>Add your vehicle</Text>
+                <Text style={styles.emptyVehicleDetail}>Tap to get started</Text>
+              </Pressable>
+            )}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="내 차량 관리"
@@ -514,13 +593,15 @@ export default function HomeScreen() {
                   {primaryVehicle?.displayName ?? 'Add your first vehicle'}
                 </Text>
                 <Text style={styles.vehicleDetail}>
-                  {primaryVehicle ? 'Selected vehicle · Ready' : 'Choose a Tesla model'}
+                  {getVehicleChargingStatus(primaryVehicle, activeChargingSession)}
                 </Text>
               </View>
               {primaryVehicle ? (
                 <View style={styles.chargeValueWrap}>
-                  <Text style={styles.chargeValue}>{primaryVehicle.batteryCapacityKwh}</Text>
-                  <Text style={styles.chargeTime}>kWh capacity</Text>
+                  <Text style={styles.chargeValue}>
+                    {Math.round(primaryVehicle.currentBatteryPercent)}%
+                  </Text>
+                  <Text style={styles.chargeTime}>battery remaining</Text>
                 </View>
               ) : (
                 <ChevronRight size={21} color={palette.primary} strokeWidth={2} />
@@ -535,12 +616,48 @@ export default function HomeScreen() {
           <CarbonIntensityCard forecast={carbonForecast} country={userLocation?.country} />
         </ScrollView>
         <ChargeAction
-          onPress={() =>
-            primaryVehicle
-              ? router.push({ pathname: '/charge', params: { vehicleId: primaryVehicle.id } })
-              : router.push('/vehicles')
-          }
+          session={activeChargingSession}
+          onPress={() => {
+            if (!primaryVehicle) {
+              setShowChargeVehiclePrompt(true);
+              return;
+            }
+            router.push({ pathname: '/charge', params: { vehicleId: primaryVehicle.id } });
+          }}
         />
+        <Modal
+          visible={showChargeVehiclePrompt}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowChargeVehiclePrompt(false)}
+        >
+          <View style={styles.centeredModalBackdrop}>
+            <View style={styles.chargeVehiclePrompt}>
+              <View style={styles.chargeVehiclePromptIcon}>
+                <Car size={27} color={palette.primary} strokeWidth={2} />
+              </View>
+              <Text style={styles.chargeVehiclePromptTitle}>Select a vehicle first</Text>
+              <Text style={styles.chargeVehiclePromptText}>
+                Add or select a vehicle before starting smart charging.
+              </Text>
+              <Pressable
+                onPress={() => {
+                  setShowChargeVehiclePrompt(false);
+                  router.push('/vehicles');
+                }}
+                style={styles.chargeVehiclePromptButton}
+              >
+                <Text style={styles.chargeVehiclePromptButtonText}>Choose a vehicle</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setShowChargeVehiclePrompt(false)}
+                style={styles.chargeVehiclePromptCancel}
+              >
+                <Text style={styles.chargeVehiclePromptCancelText}>Not now</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
       </View>
     </SafeAreaView>
   );
@@ -660,6 +777,34 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  emptyVehicleVisual: {
+    ...StyleSheet.absoluteFillObject,
+    bottom: 92,
+    top: 18,
+    left: 18,
+    right: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.surface,
+    borderRadius: 22,
+  },
+  emptyVehiclePlus: {
+    width: 68,
+    height: 68,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(114,213,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(114,213,255,0.25)',
+  },
+  emptyVehicleTitle: {
+    color: palette.text,
+    fontSize: 17,
+    fontWeight: '700',
+    marginTop: 11,
+  },
+  emptyVehicleDetail: { color: palette.muted, fontSize: 12, marginTop: 3 },
   imageShade: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(2, 9, 18, 0.05)',
@@ -1127,6 +1272,60 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     backgroundColor: 'rgba(0, 5, 13, 0.72)',
   },
+  centeredModalBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(0, 5, 13, 0.72)',
+  },
+  chargeVehiclePrompt: {
+    width: '88%',
+    maxWidth: 360,
+    alignItems: 'center',
+    padding: 26,
+    borderRadius: 26,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  chargeVehiclePromptIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(114,213,255,0.12)',
+  },
+  chargeVehiclePromptTitle: {
+    color: palette.text,
+    fontSize: 20,
+    fontWeight: '800',
+    marginTop: 18,
+  },
+  chargeVehiclePromptText: {
+    color: palette.muted,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  chargeVehiclePromptButton: {
+    width: '100%',
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: palette.primary,
+    marginTop: 22,
+  },
+  chargeVehiclePromptButtonText: {
+    color: palette.background,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  chargeVehiclePromptCancel: { paddingVertical: 13, paddingHorizontal: 24 },
+  chargeVehiclePromptCancelText: { color: palette.muted, fontSize: 13, fontWeight: '700' },
   vehicleMenu: {
     width: 300,
     padding: 10,

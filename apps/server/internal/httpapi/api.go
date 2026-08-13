@@ -27,16 +27,18 @@ type CarbonForecastProvider interface {
 }
 
 type Dependencies struct {
-	CarbonForecast CarbonForecastProvider
-	AllowedOrigins []string
-	Accounts       account.Store
-	Auth           *auth.Service
+	CarbonForecast   CarbonForecastProvider
+	AllowedOrigins   []string
+	Accounts         account.Store
+	ChargingSessions account.ChargingSessionStore
+	Auth             *auth.Service
 }
 
 type API struct {
-	carbonForecast CarbonForecastProvider
-	accounts       account.Store
-	auth           *auth.Service
+	carbonForecast   CarbonForecastProvider
+	accounts         account.Store
+	chargingSessions account.ChargingSessionStore
+	auth             *auth.Service
 }
 
 type location struct {
@@ -62,9 +64,10 @@ type backtestRequest struct {
 
 func New(dependencies Dependencies) *fiber.App {
 	api := &API{
-		carbonForecast: dependencies.CarbonForecast,
-		accounts:       dependencies.Accounts,
-		auth:           dependencies.Auth,
+		carbonForecast:   dependencies.CarbonForecast,
+		accounts:         dependencies.Accounts,
+		chargingSessions: dependencies.ChargingSessions,
+		auth:             dependencies.Auth,
 	}
 	app := fiber.New(fiber.Config{
 		AppName: "EcoV Charge API",
@@ -104,6 +107,12 @@ func New(dependencies Dependencies) *fiber.App {
 	authenticated.Post("/charging-records", api.createChargingRecord)
 	authenticated.Get("/charging-records/:recordId", api.getChargingRecord)
 	authenticated.Delete("/charging-records/:recordId", api.deleteChargingRecord)
+	authenticated.Post("/charging-sessions", api.createChargingSession)
+	authenticated.Post("/charging-sessions/estimate", api.estimateChargingSession)
+	authenticated.Get("/charging-sessions/active", api.getActiveChargingSession)
+	authenticated.Post("/charging-sessions/:sessionId/stop", api.stopChargingSession)
+	authenticated.Post("/charging-sessions/:sessionId/force-top-up", api.forceTopUpChargingSession)
+	authenticated.Post("/charging-sessions/:sessionId/disable-force-top-up", api.disableForceTopUpChargingSession)
 
 	return app
 }

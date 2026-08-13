@@ -132,6 +132,32 @@ func BuildPlan(input PlanInput, points []CarbonPoint) (Plan, error) {
 	return plan, nil
 }
 
+// EstimateCarbonSavings compares the optimized plan with charging the same
+// battery energy in the earliest available slots. Both scenarios use the same
+// five-minute forecast, vehicle power and efficiency assumptions.
+func EstimateCarbonSavings(input PlanInput, points []CarbonPoint, plan Plan) (optimized, immediate, savings float64) {
+	if len(points) < 2 || plan.RequiredEnergyKWh <= 0 {
+		return plan.EstimatedCO2G, plan.EstimatedCO2G, 0
+	}
+	points = slices.Clone(points)
+	slices.SortFunc(points, func(a, b CarbonPoint) int { return a.Datetime.Compare(b.Datetime) })
+	slotDuration := medianSlotDuration(points)
+	maxBatteryPerSlot := input.Vehicle.MaxChargePowerKW * input.Vehicle.ChargingEfficiency * slotDuration.Hours()
+	remaining := plan.RequiredEnergyKWh
+	for _, point := range points {
+		if point.Datetime.Before(input.Now) || !point.Datetime.Before(input.Deadline) || remaining <= 1e-9 {
+			continue
+		}
+		batteryEnergy := math.Min(maxBatteryPerSlot, remaining)
+		gridEnergy := batteryEnergy / input.Vehicle.ChargingEfficiency
+		immediate += point.CarbonIntensity * gridEnergy
+		remaining -= batteryEnergy
+	}
+	optimized = plan.EstimatedCO2G
+	savings = math.Max(0, immediate-optimized)
+	return optimized, immediate, savings
+}
+
 func validateInput(input PlanInput) error {
 	if input.Now.IsZero() || input.Deadline.IsZero() || !input.Deadline.After(input.Now) {
 		return fmt.Errorf("deadline must be later than now")
