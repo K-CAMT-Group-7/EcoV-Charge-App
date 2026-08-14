@@ -2,54 +2,107 @@
 
 [한국어](README.md) · [English](README.en.md) · [ไทย](README.th.md)
 
-> A smart EV charging app that keeps charging convenient while helping reduce carbon emissions.
+> Smart EV charging that keeps the convenience while cutting carbon emissions.
 
-EcoV Charge helps reduce the carbon footprint of electric vehicle charging. By using grid carbon-intensity data, it helps drivers charge during cleaner periods while keeping the charging experience simple.
+EcoV Charge is a cross-platform app that helps schedule EV charging during periods of lower grid carbon intensity. After a user selects a vehicle, target state of charge (SOC), and completion time, the server builds and continuously revises a plan using Electricity Maps forecasts and the vehicle's specifications.
+
+> [!NOTE]
+> Charging is currently a **simulation** for validating the algorithm and user experience. It does not directly control a real vehicle or charger.
 
 ## Features
 
-- **Simple charging flow**: View vehicle status, current battery level, and charge limit.
-- **Grid carbon intensity**: See current grid carbon intensity and a six-hour forecast on a chart.
-- **Location-aware data**: Use the device location to resolve the country and regional grid data.
-- **Cleaner charging window**: Surface an available charging period with lower estimated emissions.
-- **Multi-platform support**: Run the app on iOS, Android, and Web with Expo.
+- **Google account sign-in**: The server verifies Google ID tokens from Web and iOS and authenticates requests with hashed session tokens.
+- **Account-scoped vehicles**: Add a vehicle from the Tesla catalog and store its battery, charging power, efficiency, and connector specifications in PostgreSQL.
+- **Location-aware carbon data**: Display current and forecast grid carbon intensity for the device's location in 15-minute intervals.
+- **Smart charging plans**: Given a target SOC and completion time, prioritize the five-minute forecast slots with the lowest carbon intensity.
+- **Active replanning**: Recalculate at every five-minute boundary using the remaining SOC and latest forecast, while prioritizing the deadline when time becomes constrained.
+- **Charging controls**: Stop smart charging, enable `Force top up` to bypass optimization, or return to smart mode.
+- **Impact and history**: Compare estimated emissions against an immediate-charging baseline, then review energy, SOC, and CO₂ savings for completed sessions by vehicle.
+- **Cross-platform app**: Share one Expo codebase across iOS, Android, and Web.
 
-## How to use
+If Electricity Maps or location data is unavailable, the home screen uses a regional fallback forecast. Creating and replanning smart-charging sessions requires a running API server, database, and configured Electricity Maps API.
 
-1. Launch the app and grant location permission.
-2. Review your location and grid carbon intensity on the home screen.
-3. Tap `Start charging` to open the charging screen.
-4. Review the charge limit and status, then start or stop charging.
+## User flow
 
-If Electricity Maps is not configured, the app still renders using a local fallback forecast.
+1. Sign in with Google and grant location access.
+2. Add a vehicle to the account from `My vehicles`.
+3. On Home, select a vehicle and review local grid carbon intensity and cumulative impact.
+4. In `Start charging`, choose a target SOC and completion time and review the estimated CO₂ savings.
+5. Start smart charging, monitor its progress, or stop it/enable forced charging.
+6. Open `Charging record` to review completed sessions, energy use, and CO₂ savings per vehicle.
 
-## Tech stack
+## How it works
 
-- [Expo SDK 54](https://docs.expo.dev/versions/v54.0.0/) / React Native 0.81
-- React 19.1 and React Compiler
-- File-based routing and Typed Routes with Expo Router
-- Bun 1.3 for package management and scripts
-- Native TypeScript 7 compiler with TypeScript 5.9 compatibility checks
-- Oxlint and Oxfmt powered by Oxc
+The server derives required energy from battery capacity, AC charging power, charging efficiency, and current/target SOC. It sorts the five-minute slots before the deadline by carbon intensity and selects as many as are needed. The simulation applies maximum power when the current slot is selected and 0 kW otherwise. Active sessions are replanned every five minutes using a receding horizon.
+
+Estimated savings compare the optimized plan with an immediate, maximum-power baseline under the same conditions. Every control result is stored in PostgreSQL; completed or stopped sessions are aggregated into charging history and realized simulation results. See [Active charging algorithm](docs/active-charging-algorithm.md) for the detailed model.
+
+## Technical architecture
+
+- **Client**: Expo SDK 54, React Native 0.81, React 19.1, Expo Router 6, TypeScript
+- **Authentication**: Google Sign-In / Google Identity Services, bearer sessions, Expo SecureStore
+- **Server**: Go 1.25, Fiber v3, background charging scheduler
+- **Data**: PostgreSQL 17, `pgx`, embedded SQL migrations
+- **External data**: Electricity Maps carbon forecasts, device location, and reverse geocoding
+- **Tooling**: Bun 1.3, Oxlint, Oxfmt, Bun Test, Go test
+- **Delivery**: Multi-stage non-root Docker image, Docker Compose, GitHub Actions builds and publishing to GHCR
+
+```mermaid
+flowchart LR
+    A["Expo app<br/>iOS · Android · Web"] -->|"Google ID token / bearer session"| B["Go Fiber API"]
+    B --> C[("PostgreSQL")]
+    B --> D["Electricity Maps API"]
+    B --> E["5-minute scheduler"]
+    E --> C
+```
 
 ## Getting started
 
 ### Prerequisites
 
-- [Bun](https://bun.sh/) 1.3 or later
-- Node.js LTS
-- Expo Go or a native development environment for mobile testing
+- [Bun](https://bun.sh/) 1.3 or later and Node.js LTS
+- Go 1.25 or later
+- Docker and Docker Compose for PostgreSQL
+- An iOS native or Android development environment
+- Google OAuth client IDs and an Electricity Maps API key
 
-### Install and run
+Google Sign-In uses a native module, so iOS requires a development build instead of Expo Go.
+
+### Install and configure
 
 ```bash
 bun install
+cp example.env .env
+```
+
+Replace the placeholders in `.env`. Never put server secrets in `EXPO_PUBLIC_*` variables.
+
+```dotenv
+ELECTRICITYMAPS_API_URL="https://api.electricitymaps.com/v4"
+ELECTRICITYMAPS_API_KEY="YOUR_API_KEY_HERE"
+DATABASE_URL="postgres://ecov_charge:ecov_charge@localhost:5432/ecov_charge?sslmode=disable"
+GOOGLE_CLIENT_ID="YOUR_WEB_CLIENT_ID.apps.googleusercontent.com"
+
+EXPO_PUBLIC_SERVER_API_URL="http://localhost:8080"
+EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID="YOUR_WEB_CLIENT_ID.apps.googleusercontent.com"
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID="YOUR_IOS_CLIENT_ID.apps.googleusercontent.com"
+```
+
+`GOOGLE_CLIENT_ID` and `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` use the same Web client ID. Create a separate iOS client ID for bundle ID `com.ecovcharge.app`. See the [server README](apps/server/README.md) for the full OAuth setup and server variables.
+
+To override the reverse-geocoding endpoint used on Web, set the optional `EXPO_PUBLIC_LOCATION_GEOCODER_URL` variable shown in `example.env`.
+
+### Run locally
+
+Run each command in a separate terminal:
+
+```bash
+bun run db:up
+bun run server:dev
 bun run dev:clear
 ```
 
-When the development server is running, press `i`, `a`, or `w` in the terminal to open iOS, Android, or Web.
-
-You can also launch a platform directly:
+Choose a platform from the Expo terminal or launch it directly:
 
 ```bash
 bun run ios
@@ -57,33 +110,22 @@ bun run android
 bun run web
 ```
 
-### Environment variables
+### Run the server with Docker
 
-Copy the values from `example.env` into a `.env` file at the project root and configure your Electricity Maps API credentials.
-
-```dotenv
-EXPO_PUBLIC_ELECTRICITYMAPS_API_URL="https://api.electricitymaps.com/v4"
-EXPO_PUBLIC_ELECTRICITYMAPS_API_KEY="YOUR_API_KEY_HERE"
-```
-
-To use a different web reverse-geocoding endpoint, optionally add:
-
-```dotenv
-EXPO_PUBLIC_LOCATION_GEOCODER_URL="https://your-api.example.com/reverse"
-```
-
-### Code quality checks
+`compose.server.example.yaml` is a deployment example that runs the API and PostgreSQL together.
 
 ```bash
-bun run lint
-bun run format:check
-bun run typecheck
+docker compose -f compose.server.example.yaml up --build
+```
+
+Backend changes on `main` and `v*` tags are built and published to GitHub Container Registry by GitHub Actions. Pull requests build the image without publishing it.
+
+### Checks
+
+```bash
 bun run check
-```
-
-Check Expo compatibility with:
-
-```bash
+bun run test
+bun run server:check
 bunx expo-doctor
 ```
 
@@ -91,18 +133,21 @@ bunx expo-doctor
 
 ```text
 .
-├── assets/          # App icons and static images
+├── apps/server/       # Go Fiber API, scheduler, DB migrations, Dockerfile
+├── assets/            # App, brand, and vehicle images
+├── docs/              # Active charging algorithm documentation
+├── scripts/           # Local and global charging backtests
 ├── src/
-│   ├── app/         # Expo Router screens and layout
-│   └── packages/    # Location and Electricity Maps API modules
-├── app.json         # Expo configuration
-├── example.env      # Environment variable example
-├── package.json     # Scripts and dependencies
-└── tsconfig.json    # TypeScript configuration
+│   ├── app/           # Login, home, vehicle, charging, and history screens
+│   └── packages/      # Auth, server API, location, vehicle, and charging modules
+├── compose.yaml       # Local PostgreSQL
+├── compose.server.example.yaml # API + PostgreSQL example
+├── example.env        # Client and server environment variable example
+└── package.json       # App, checks, server, and database scripts
 ```
 
 ## Core value
 
 **Plug in. Set your target. Charge cleaner.**
 
-EcoV Charge reduces the need for complex decisions and manual adjustments, helping anyone charge an EV in a more sustainable way.
+EcoV Charge helps users meet their charging deadline and choose more sustainable periods without having to interpret complex grid data themselves.
